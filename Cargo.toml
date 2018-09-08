@@ -1,0 +1,7 @@
+[package]
+name = "shenzhen-solitaire-solver"
+version = "0.1.0"
+authors = ["Brian Shaginaw <bshaginaw120@gmail.com>"]
+
+[dependencies]
+rand = "0.5"
