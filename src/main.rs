@@ -1,11 +1,6 @@
 extern crate rand;
 use rand::{thread_rng, Rng};
 use std::fmt::Debug;
-use std::mem;
-
-const GREEN_DRAGON: &str = "發";
-const RED_DRAGON: &str = "中";
-const BLACK_DRAGON: &str = "▯";
 
 #[derive(Copy, Clone)]
 #[derive(Debug)]
@@ -36,11 +31,7 @@ struct DragonCard {
 impl Card for DragonCard {}
 impl TerminalPrintable for DragonCard {
     fn print(&self) -> String {
-        term_color(self.suit, match self.suit {
-            Suit::Green => GREEN_DRAGON,
-            Suit::Red => RED_DRAGON,
-            Suit::Black => BLACK_DRAGON,
-        }.to_string())
+        term_color(self.suit, "D".to_string())
     }
 }
 
@@ -64,7 +55,10 @@ struct FreeCell<'a> {
 impl<'a> CardCell for FreeCell<'a> {}
 impl<'a> TerminalPrintable for FreeCell<'a> {
     fn print(&self) -> String {
-        String::from("F")
+        match self.card {
+            Some(card) => {card.print()},
+            None => String::from("-"),
+        }
     }
 }
 
@@ -74,7 +68,16 @@ struct GameCell {
 impl CardCell for GameCell {}
 impl TerminalPrintable for GameCell {
     fn print(&self) -> String {
-        String::from("C")
+        if self.card_stack.len() == 0 {
+            return String::from("-");
+        }
+        let mut builder = String::new();
+        for card in self.card_stack.iter() {
+            builder.push_str(&card.print());
+            builder.push_str("\n");
+        }
+        builder.pop();  // remove trailing "\n"
+        return builder;
     }
 }
 
@@ -84,7 +87,10 @@ struct GoalCell<'a> {
 impl<'a> CardCell for GoalCell<'a> {}
 impl<'a> TerminalPrintable for GoalCell<'a> {
     fn print(&self) -> String {
-        String::from("G")
+        match self.top_card {
+            Some(card) => {card.print()},
+            None => String::from("-"),
+        }
     }
 }
 
@@ -113,16 +119,16 @@ impl<'a> Board<'a> {
     fn deal() -> Board<'a> {
         let mut deck = create_deck();
         thread_rng().shuffle(&mut deck);
-        let mut stacks = deck.chunks(5);
-        assert_eq!(stacks.len(), 8);
-        // println!("{:?}", stacks);
 
-        let cardslice = stacks.next().unwrap();
-        let foo: Vec<Box<Card>> = cardslice.iter().collect();
+        let mut stacks = deal(deck, 8).into_iter();
 
         Board{
             joker_cell: JokerCell{has_joker: false},
-            free_cells: [FreeCell{card: None}, FreeCell{card: None}, FreeCell{card: None}],
+            free_cells: [
+                FreeCell{card: None},
+                FreeCell{card: None},
+                FreeCell{card: None},
+            ],
             goal_cells: [
                 GoalCell{top_card: None},
                 GoalCell{top_card: None},
@@ -132,15 +138,14 @@ impl<'a> Board<'a> {
             // Maybe revisit this someday:
             // https://llogiq.github.io/2016/04/28/arraymap.html
             game_cells: [
-                // GameCell{card_stack: (*stacks[0].unwrap()).to_vec()},
-                GameCell{card_stack: vec![]},  // stacks.next().unwrap().to_vec()},
-                GameCell{card_stack: vec![]},  // stacks.next().unwrap().to_vec()},
-                GameCell{card_stack: vec![]},  // stacks.next().unwrap().to_vec()},
-                GameCell{card_stack: vec![]},  // stacks.next().unwrap().to_vec()},
-                GameCell{card_stack: vec![]},  // stacks.next().unwrap().to_vec()},
-                GameCell{card_stack: vec![]},  // stacks.next().unwrap().to_vec()},
-                GameCell{card_stack: vec![]},  // stacks.next().unwrap().to_vec()},
-                GameCell{card_stack: vec![]},  // stacks.next().unwrap().to_vec()},
+                GameCell{card_stack: stacks.next().unwrap()},
+                GameCell{card_stack: stacks.next().unwrap()},
+                GameCell{card_stack: stacks.next().unwrap()},
+                GameCell{card_stack: stacks.next().unwrap()},
+                GameCell{card_stack: stacks.next().unwrap()},
+                GameCell{card_stack: stacks.next().unwrap()},
+                GameCell{card_stack: stacks.next().unwrap()},
+                GameCell{card_stack: stacks.next().unwrap()},
             ],
         }
     }
@@ -158,9 +163,30 @@ impl<'a> TerminalPrintable for Board<'a> {
         for cell in self.goal_cells.iter() {
             s.push_str(&cell.print());
         }
+        s.push_str("\n");
+
+        let strings: Vec<_> = self.game_cells.iter().map(|cell| cell.print()).collect();
+        s.push_str(&join_vertical(strings));
 
         return s;
     }
+}
+
+fn join_vertical(strings: Vec<String>) -> String {
+    let mut result = String::new();
+    let columns: Vec<Vec<_>> = strings.iter().map(|str| str.split("\n").collect()).collect();
+    let length = columns.iter().map(|strs| strs.len()).max().expect("input must not be empty");
+
+    for y in 0..length {
+        // TODO: doesn't fit this util really, but it's certainly the easiest place to add it
+        result.push_str(" ");
+        for column in columns.iter() {
+            result.push_str(column.get(y).unwrap_or(&" "));
+        }
+        result.push_str("\n");
+    }
+
+    return result;
 }
 
 fn term_color(suit: Suit, text: String) -> String {
@@ -176,7 +202,7 @@ fn term_color(suit: Suit, text: String) -> String {
 }
 
 fn create_deck() -> Vec<Box<Card>> {
-    let mut vec: Vec<Box<Card>> = Vec::new();
+    let mut vec: Vec<Box<Card>> = Vec::with_capacity(40);
     for suit in vec![Suit::Black, Suit::Green, Suit::Red] {
         for _ in 0..4 {
             vec.push(Box::new(DragonCard{suit}));
@@ -187,6 +213,20 @@ fn create_deck() -> Vec<Box<Card>> {
     }
     vec.push(Box::new(JokerCard{}));
     return vec
+}
+
+fn deal<T>(vec: Vec<T>, n: usize) -> Vec<Vec<T>> {
+    let mut chunks : Vec<Vec<T>> = Vec::with_capacity(n);
+    let chunksize = (vec.len() as f32 / n as f32).ceil() as usize;
+
+    for _ in 0..n {
+        chunks.push(Vec::new());
+    }
+
+    for (i, v) in vec.into_iter().enumerate() {
+        chunks[i / chunksize].push(v);
+    }
+    chunks
 }
 
 fn main() {
