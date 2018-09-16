@@ -29,132 +29,73 @@ impl TerminalPrintable for Card {
     }
 }
 
-trait CardCell: TerminalPrintable {
-    type OwnType;
-    fn accept(&self, &Rc<Card>) -> Option<Self::OwnType>;
-    fn top(&self) -> Option<Rc<Card>>;
+enum CardCell {
+    JokerCell{has_joker: bool},
+    FreeCell{card: Option<Rc<Card>>},
+    GameCell{card_stack: Vec<Rc<Card>>},
+    GoalCell{top_card: Option<Rc<Card>>},
 }
-
-struct FreeCell {
-    card: Option<Rc<Card>>,
-}
-impl CardCell for FreeCell {
-    type OwnType = FreeCell;
-
-    fn accept(&self, card: &Rc<Card>) -> Option<FreeCell> {
-        None
+impl CardCell {
+    fn accept(&self, card: &Rc<Card>) -> Option<Self> {
+        match self {
+            CardCell::JokerCell{..} => match **card {
+                Card::JokerCard => Some(CardCell::JokerCell{has_joker: true}),
+                _ => None,
+            },
+            _ => None
+        }
     }
 
     fn top(&self) -> Option<Rc<Card>> {
-        match self.card {
-            Some(ref card) => Some(card.clone()),
-            None => None
-        }
-    }
-}
-impl TerminalPrintable for FreeCell {
-    fn print(&self) -> String {
-        match self.card {
-            Some(ref card) => {card.print()},
-            None => String::from("-"),
-        }
-    }
-}
-
-struct GameCell {
-   card_stack: Vec<Rc<Card>>,
-}
-impl GameCell {
-    fn pop(&self) -> GameCell {
-        let mut new_stack: Vec<_> = self.card_stack.iter().map(|rc_card| rc_card.clone()).collect();
-        new_stack.pop();
-        GameCell{card_stack: new_stack}
-    }
-}
-impl CardCell for GameCell {
-    type OwnType = GameCell;
-
-    fn accept(&self, card: &Rc<Card>) -> Option<GameCell> {
-        None
-    }
-    fn top(&self) -> Option<Rc<Card>> {
-        self.card_stack.last().map(|rc_card| rc_card.clone())
-    }
-}
-impl TerminalPrintable for GameCell {
-    fn print(&self) -> String {
-        if self.card_stack.len() == 0 {
-            return String::from("-");
-        }
-        let mut builder = String::new();
-        for card in self.card_stack.iter() {
-            builder.push_str(&card.print());
-            builder.push_str("\n");
-        }
-        builder.pop();  // remove trailing "\n"
-        return builder;
-    }
-}
-
-struct GoalCell {
-    top_card: Option<Rc<Card>>,
-}
-impl CardCell for GoalCell {
-    type OwnType = GoalCell;
-
-    fn accept(&self, card: &Rc<Card>) -> Option<GoalCell> {
-        None
-    }
-
-    fn top(&self) -> Option<Rc<Card>> {
-        match self.top_card {
-            Some(ref card) => Some(card.clone()),
-            None => None
-        }
-    }
-}
-impl TerminalPrintable for GoalCell {
-    fn print(&self) -> String {
-        match self.top_card {
-            Some(ref card) => {card.print()},
-            None => String::from("-"),
-        }
-    }
-}
-
-struct JokerCell {
-    has_joker: bool
-}
-impl CardCell for JokerCell {
-    type OwnType = JokerCell;
-
-    fn accept(&self, card: &Rc<Card>) -> Option<JokerCell> {
-        match **card {
-            Card::JokerCard => Some(JokerCell{has_joker: true}),
+        match self {
+            CardCell::GoalCell{top_card: Some(ref card)} => Some(card.clone()),
+            CardCell::FreeCell{card: Some(ref card)} => Some(card.clone()),
+            CardCell::GameCell{card_stack} => card_stack.last().map(|rc_card| rc_card.clone()),
             _ => None,
         }
     }
 
-    fn top(&self) -> Option<Rc<Card>> {
-        None
+    fn pop(&self) -> Option<Self> {
+        match self {
+            CardCell::GameCell{card_stack} => {
+                let mut new_stack: Vec<_> = card_stack.iter().map(|rc_card| rc_card.clone()).collect();
+                new_stack.pop();
+                Some(CardCell::GameCell{card_stack: new_stack})
+            },
+            _ => None,
+        }
     }
 }
-impl TerminalPrintable for JokerCell {
+impl TerminalPrintable for CardCell {
     fn print(&self) -> String {
-        if self.has_joker {
-            String::from("J")
-        } else {
-            String::from("-")
+        match self {
+            CardCell::JokerCell{has_joker: true} => String::from("J"),
+            CardCell::JokerCell{has_joker: false} => String::from("-"),
+            CardCell::FreeCell{card: None} => String::from("-"),
+            CardCell::FreeCell{card: Some(ref card)} => card.print(),
+            CardCell::GoalCell{top_card: None} => String::from("-"),
+            CardCell::GoalCell{top_card: Some(ref top_card)} => top_card.print(),
+            CardCell::GameCell{card_stack} if card_stack.len() == 0 => String::from("-"),
+            CardCell::GameCell{card_stack} => {
+                let mut builder = String::new();
+                for card in card_stack.iter() {
+                    builder.push_str(&card.print());
+                    builder.push_str("\n");
+                }
+                builder.pop();  // remove trailing "\n"
+                builder
+            }
         }
     }
 }
 
+
 #[derive(Clone)]
 pub struct Board {
-    joker_cell: Rc<JokerCell>,
-    free_cells: [Rc<FreeCell>; 3],
-    goal_cells: [Rc<GoalCell>; 3],
-    game_cells: [Rc<GameCell>; 8],
+    joker_cell: Rc<CardCell>,
+    free_cells: [Rc<CardCell>; 3],
+    goal_cells: [Rc<CardCell>; 3],
+    game_cells: [Rc<CardCell>; 8],
 }
 
 impl Board {
@@ -165,37 +106,37 @@ impl Board {
         let mut stacks = distribute(deck, 8).into_iter();
 
         Board{
-            joker_cell: Rc::new(JokerCell{has_joker: false}),
+            joker_cell: Rc::new(CardCell::JokerCell{has_joker: false}),
             free_cells: [
-                Rc::new(FreeCell{card: None}),
-                Rc::new(FreeCell{card: None}),
-                Rc::new(FreeCell{card: None}),
+                Rc::new(CardCell::FreeCell{card: None}),
+                Rc::new(CardCell::FreeCell{card: None}),
+                Rc::new(CardCell::FreeCell{card: None}),
             ],
             goal_cells: [
-                Rc::new(GoalCell{top_card: None}),
-                Rc::new(GoalCell{top_card: None}),
-                Rc::new(GoalCell{top_card: None}),
+                Rc::new(CardCell::GoalCell{top_card: None}),
+                Rc::new(CardCell::GoalCell{top_card: None}),
+                Rc::new(CardCell::GoalCell{top_card: None}),
             ],
             // TODO: I hate this, but I'm tired of fighting rust over it.
             // Maybe revisit this someday:
             // https://llogiq.github.io/2016/04/28/arraymap.html
             game_cells: [
-                Rc::new(GameCell{card_stack: stacks.next().unwrap()}),
-                Rc::new(GameCell{card_stack: stacks.next().unwrap()}),
-                Rc::new(GameCell{card_stack: stacks.next().unwrap()}),
-                Rc::new(GameCell{card_stack: stacks.next().unwrap()}),
-                Rc::new(GameCell{card_stack: stacks.next().unwrap()}),
-                Rc::new(GameCell{card_stack: stacks.next().unwrap()}),
-                Rc::new(GameCell{card_stack: stacks.next().unwrap()}),
-                Rc::new(GameCell{card_stack: stacks.next().unwrap()}),
+                Rc::new(CardCell::GameCell{card_stack: stacks.next().unwrap()}),
+                Rc::new(CardCell::GameCell{card_stack: stacks.next().unwrap()}),
+                Rc::new(CardCell::GameCell{card_stack: stacks.next().unwrap()}),
+                Rc::new(CardCell::GameCell{card_stack: stacks.next().unwrap()}),
+                Rc::new(CardCell::GameCell{card_stack: stacks.next().unwrap()}),
+                Rc::new(CardCell::GameCell{card_stack: stacks.next().unwrap()}),
+                Rc::new(CardCell::GameCell{card_stack: stacks.next().unwrap()}),
+                Rc::new(CardCell::GameCell{card_stack: stacks.next().unwrap()}),
             ],
         }
     }
 
-    fn move_card(source: &mut Rc<GameCell>, dest: &mut Rc<JokerCell>) -> bool {
+    fn move_card(source: &mut Rc<CardCell>, dest: &mut Rc<CardCell>) -> bool {
         if let Some(new_cell) = dest.accept(&source.top().expect("me am play gods")) {
             *dest = Rc::new(new_cell);
-            *source = Rc::new(source.pop());
+            *source = Rc::new(source.pop().expect("cripes I should really be checkin these"));
             return true;
         }
         false
@@ -214,8 +155,7 @@ impl Board {
                 progress = match cell.top() {
                     Some(rc_card) => match *rc_card {
                         Card::JokerCard => Board::move_card(&mut cell, &mut board.joker_cell),
-                        Card::DragonCard{..} => false,
-                        Card::NumberCard{..} => false,
+                        _ => false,
                     }
                     None => false,
                 } || progress;
