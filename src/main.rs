@@ -1,6 +1,6 @@
 extern crate rand;
 use rand::{thread_rng, Rng};
-use std::fmt::Debug;
+use std::rc::Rc;
 
 #[derive(Copy, Clone)]
 #[derive(Debug)]
@@ -13,57 +13,44 @@ enum Suit {
 trait TerminalPrintable {
     fn print(&self) -> String;
 }
-trait Card: TerminalPrintable + Debug {}
 
-#[derive(Debug)]
-struct JokerCard ();
-impl Card for JokerCard {}
-impl TerminalPrintable for JokerCard {
+enum Card {
+    JokerCard,
+    DragonCard{suit: Suit},
+    NumberCard{suit: Suit, rank: u8},
+}
+impl TerminalPrintable for Card {
     fn print(&self) -> String {
-        String::from("J")
-    }
-}
-
-#[derive(Debug)]
-struct DragonCard {
-    suit: Suit,
-}
-impl Card for DragonCard {}
-impl TerminalPrintable for DragonCard {
-    fn print(&self) -> String {
-        term_color(self.suit, "D".to_string())
-    }
-}
-
-#[derive(Debug)]
-struct NumberCard {
-    suit: Suit,
-    value: u8,
-}
-impl Card for NumberCard {}
-impl TerminalPrintable for NumberCard {
-    fn print(&self) -> String {
-        term_color(self.suit, self.value.to_string())
+        match self {
+            Card::JokerCard => String::from("J"),
+            Card::DragonCard{suit} => term_color(*suit, "D".to_string()),
+            Card::NumberCard{suit, rank} => term_color(*suit, rank.to_string()),
+        }
     }
 }
 
 trait CardCell: TerminalPrintable {}
 
-struct FreeCell<'a> {
-    card: Option<&'a Card>,
+struct FreeCell {
+    card: Option<Rc<Card>>,
 }
-impl<'a> CardCell for FreeCell<'a> {}
-impl<'a> TerminalPrintable for FreeCell<'a> {
+impl CardCell for FreeCell {}
+impl TerminalPrintable for FreeCell {
     fn print(&self) -> String {
         match self.card {
-            Some(card) => {card.print()},
+            Some(ref card) => {card.print()},
             None => String::from("-"),
         }
     }
 }
 
 struct GameCell {
-   pub card_stack: Vec<Box<Card>>,
+   pub card_stack: Vec<Rc<Card>>,
+}
+impl GameCell {
+    fn top(&self) -> Option<&Card> {
+        self.card_stack.last().map(|card| &**card)
+    }
 }
 impl CardCell for GameCell {}
 impl TerminalPrintable for GameCell {
@@ -81,14 +68,14 @@ impl TerminalPrintable for GameCell {
     }
 }
 
-struct GoalCell<'a> {
-    top_card: Option<&'a Card>,
+struct GoalCell {
+    top_card: Option<Rc<Card>>,
 }
-impl<'a> CardCell for GoalCell<'a> {}
-impl<'a> TerminalPrintable for GoalCell<'a> {
+impl CardCell for GoalCell {}
+impl TerminalPrintable for GoalCell {
     fn print(&self) -> String {
         match self.top_card {
-            Some(card) => {card.print()},
+            Some(ref card) => {card.print()},
             None => String::from("-"),
         }
     }
@@ -108,50 +95,51 @@ impl TerminalPrintable for JokerCell {
     }
 }
 
-struct Board<'a> {
-    joker_cell: JokerCell,
-    free_cells: [FreeCell<'a>; 3],
-    goal_cells: [GoalCell<'a>; 3],
-    game_cells: [GameCell; 8],
+#[derive(Clone)]
+struct Board {
+    joker_cell: Rc<JokerCell>,
+    free_cells: [Rc<FreeCell>; 3],
+    goal_cells: [Rc<GoalCell>; 3],
+    game_cells: [Rc<GameCell>; 8],
 }
 
-impl<'a> Board<'a> {
-    fn deal() -> Board<'a> {
+impl Board {
+    fn deal() -> Board {
         let mut deck = create_deck();
         thread_rng().shuffle(&mut deck);
 
         let mut stacks = deal(deck, 8).into_iter();
 
         Board{
-            joker_cell: JokerCell{has_joker: false},
+            joker_cell: Rc::new(JokerCell{has_joker: false}),
             free_cells: [
-                FreeCell{card: None},
-                FreeCell{card: None},
-                FreeCell{card: None},
+                Rc::new(FreeCell{card: None}),
+                Rc::new(FreeCell{card: None}),
+                Rc::new(FreeCell{card: None}),
             ],
             goal_cells: [
-                GoalCell{top_card: None},
-                GoalCell{top_card: None},
-                GoalCell{top_card: None},
+                Rc::new(GoalCell{top_card: None}),
+                Rc::new(GoalCell{top_card: None}),
+                Rc::new(GoalCell{top_card: None}),
             ],
             // TODO: I hate this, but I'm tired of fighting rust over it.
             // Maybe revisit this someday:
             // https://llogiq.github.io/2016/04/28/arraymap.html
             game_cells: [
-                GameCell{card_stack: stacks.next().unwrap()},
-                GameCell{card_stack: stacks.next().unwrap()},
-                GameCell{card_stack: stacks.next().unwrap()},
-                GameCell{card_stack: stacks.next().unwrap()},
-                GameCell{card_stack: stacks.next().unwrap()},
-                GameCell{card_stack: stacks.next().unwrap()},
-                GameCell{card_stack: stacks.next().unwrap()},
-                GameCell{card_stack: stacks.next().unwrap()},
+                Rc::new(GameCell{card_stack: stacks.next().unwrap()}),
+                Rc::new(GameCell{card_stack: stacks.next().unwrap()}),
+                Rc::new(GameCell{card_stack: stacks.next().unwrap()}),
+                Rc::new(GameCell{card_stack: stacks.next().unwrap()}),
+                Rc::new(GameCell{card_stack: stacks.next().unwrap()}),
+                Rc::new(GameCell{card_stack: stacks.next().unwrap()}),
+                Rc::new(GameCell{card_stack: stacks.next().unwrap()}),
+                Rc::new(GameCell{card_stack: stacks.next().unwrap()}),
             ],
         }
     }
 }
 
-impl<'a> TerminalPrintable for Board<'a> {
+impl TerminalPrintable for Board {
     fn print(&self) -> String {
         let mut s = String::new();
         for cell in self.free_cells.iter() {
@@ -201,17 +189,17 @@ fn term_color(suit: Suit, text: String) -> String {
     )
 }
 
-fn create_deck() -> Vec<Box<Card>> {
-    let mut vec: Vec<Box<Card>> = Vec::with_capacity(40);
+fn create_deck() -> Vec<Rc<Card>> {
+    let mut vec: Vec<Rc<Card>> = Vec::with_capacity(40);
     for suit in vec![Suit::Black, Suit::Green, Suit::Red] {
         for _ in 0..4 {
-            vec.push(Box::new(DragonCard{suit}));
+            vec.push(Rc::new(Card::DragonCard{suit}));
         }
-        for value in 1..10 {
-            vec.push(Box::new(NumberCard{suit, value}));
+        for rank in 1..10 {
+            vec.push(Rc::new(Card::NumberCard{suit, rank}));
         }
     }
-    vec.push(Box::new(JokerCard{}));
+    vec.push(Rc::new(Card::JokerCard{}));
     return vec
 }
 
