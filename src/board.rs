@@ -4,6 +4,7 @@ use std::rc::Rc;
 
 #[derive(Copy, Clone)]
 #[derive(Debug)]
+#[derive(PartialEq)]
 enum Suit {
     Black,
     Green,
@@ -42,8 +43,21 @@ impl CardCell {
                 Card::JokerCard => Some(CardCell::JokerCell{has_joker: true}),
                 _ => None,
             },
-            _ => None
+            CardCell::GoalCell{top_card: None} => match **card {
+                Card::NumberCard{rank: 1, ..} => Some(CardCell::GoalCell{top_card: Some(card.clone())}),
+                _ => None,
+            },
+            CardCell::GoalCell{top_card: Some(ref top_card)} => match **top_card {
+                Card::NumberCard{suit: top_suit, rank: top_rank} => match **card {
+                    Card::NumberCard{suit, rank} if top_suit == suit && top_rank + 1 == rank =>
+                        Some(CardCell::GoalCell{top_card: Some(card.clone())}),
+                    _ => None,
+                },
+                _ => None,
+            },
+            _ => None,
         }
+
     }
 
     fn top(&self) -> Option<Rc<Card>> {
@@ -142,11 +156,14 @@ impl Board {
         false
     }
 
+    fn stack_dragons(suit: Suit) {
+
+    }
+
     // fn move_stack(&mut self, source: GameCell, dest: GameCell, num_cards: u8)
 
     pub fn do_automoves(&self) -> Board {
         let mut board = self.clone();
-        // Board::move_card(&mut board.game_cells[7], &mut board.joker_cell);
         let mut progress = true;
 
         while progress {
@@ -155,6 +172,16 @@ impl Board {
                 progress = match cell.top() {
                     Some(rc_card) => match *rc_card {
                         Card::JokerCard => Board::move_card(&mut cell, &mut board.joker_cell),
+                        Card::NumberCard{..} => {
+                            let mut did = false;
+                            for mut goal in board.goal_cells.iter_mut() {
+                                if Board::move_card(&mut cell, &mut goal) {
+                                    did = true;
+                                    break
+                                }
+                            }
+                            did
+                        }
                         _ => false,
                     }
                     None => false,
