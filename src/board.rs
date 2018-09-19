@@ -5,7 +5,7 @@ use std::rc::Rc;
 #[derive(Copy, Clone)]
 #[derive(Debug)]
 #[derive(PartialEq)]
-enum Suit {
+pub enum Suit {
     Black,
     Green,
     Red,
@@ -19,6 +19,8 @@ enum Card {
     JokerCard,
     DragonCard{suit: Suit},
     NumberCard{suit: Suit, rank: u8},
+    /// Dummy "card" representing an immovable stack of dragons in a free cell.
+    DragonStack,
 }
 impl TerminalPrintable for Card {
     fn print(&self) -> String {
@@ -26,6 +28,7 @@ impl TerminalPrintable for Card {
             Card::JokerCard => String::from("J"),
             Card::DragonCard{suit} => term_color(*suit, "D".to_string()),
             Card::NumberCard{suit, rank} => term_color(*suit, rank.to_string()),
+            Card::DragonStack => String::from("X"),
         }
     }
 }
@@ -76,6 +79,7 @@ impl CardCell {
                 new_stack.pop();
                 Some(CardCell::GameCell{card_stack: new_stack})
             },
+            CardCell::FreeCell{card} => Some(CardCell::FreeCell{card: None}),
             _ => None,
         }
     }
@@ -156,12 +160,61 @@ impl Board {
         false
     }
 
-    fn stack_dragons(suit: Suit) {
+    /// Helper function to `stack_dragons`: remove all exposed dragons of the given suit from
+    /// the board. Returns true if all four dragons are removed.
+    ///
+    /// Note that this leaves the board in an impossible state!
+    fn remove_dragons(&mut self, suit: Suit) -> bool {
+        let mut count = 0;
+        for mut cell in self.game_cells.iter_mut().chain(self.free_cells.iter_mut()) {
+            match cell.top() {
+                Some(rc_card) => match *rc_card {
+                    Card::DragonCard{suit: dsuit} if dsuit == suit => {
+                        *cell = Rc::new(cell.pop().expect("expected dragon but found empty stack"));
+                        count += 1;
+                        if count == 4 {
+                            return true
+                        }
+                    },
+                    _ => (),
+                },
+                _ => (),
+            }
+        }
+        false
+    }
 
+    /// Stack exposed dragons of the given suit into an open free cell, and return the resulting
+    /// board.
+    ///
+    /// If not all dragons are exposed or no free cell is open, returns None instead.
+    pub fn stack_dragons(&self, suit: Suit) -> Option<Board> {
+        // TODO: this function would love some tests.
+        // TODO: learn how to write tests in rust
+        let mut board = self.clone();
+        if !board.remove_dragons(suit) {
+            return None
+        }
+        let mut found = false;
+        for mut cell in board.free_cells.iter_mut() {
+            match cell.top() {
+                None => {
+                    *cell = Rc::new(CardCell::FreeCell{card: Some(Rc::new(Card::DragonStack))});
+                    // Can't just return here, because we're already
+                    // borrowing `board` to iterate it, I guess. 🤮
+                    found = true;
+                    break;
+                },
+                _ => (),
+            }
+        }
+        if found {Some(board)}
+        else {None}
     }
 
     // fn move_stack(&mut self, source: GameCell, dest: GameCell, num_cards: u8)
 
+    /// Perform moves which are always safe to do and return the resulting board.
     pub fn do_automoves(&self) -> Board {
         let mut board = self.clone();
         let mut progress = true;
