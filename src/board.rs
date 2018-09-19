@@ -75,7 +75,7 @@ impl CardCell {
     fn pop(&self) -> Option<Self> {
         match self {
             CardCell::GameCell{card_stack} => {
-                let mut new_stack: Vec<_> = card_stack.iter().map(|rc_card| rc_card.clone()).collect();
+                let mut new_stack = card_stack.clone();
                 new_stack.pop();
                 Some(CardCell::GameCell{card_stack: new_stack})
             },
