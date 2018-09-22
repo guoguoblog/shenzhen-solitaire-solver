@@ -531,9 +531,85 @@ mod tests {
         match &*new_board.goal_cells[0] {
             CardCell::GoalCell{top_card: Some(top_card)} =>
                 assert!(Rc::ptr_eq(&top_card, &green_1)),
+            CardCell::GoalCell{top_card: None} => panic!("Missing card"),
             _ => panic!("Non-GoalCell in goal_cell slot?"),
         }
         assert_eq!(get_card_stack_vec(&new_board, 5).len(), 0);
+    }
+
+    #[test]
+    /// Ensure automove will grab many cards in a single `do_automoves`, even if they start covered
+    fn automove_many() {
+        let mut board = empty_board();
+        let red_2 = add_game_card(&mut board, Card::NumberCard{suit: Suit::Red, rank: 2}, 3);
+        let red_9 = add_game_card(&mut board, Card::NumberCard{suit: Suit::Red, rank: 9}, 3);
+        let black_2 = add_game_card(&mut board, Card::NumberCard{suit: Suit::Black, rank: 2}, 3);
+        let black_1 = add_game_card(&mut board, Card::NumberCard{suit: Suit::Black, rank: 1}, 4);
+        let red_1 = add_game_card(&mut board, Card::NumberCard{suit: Suit::Red, rank: 1}, 4);
+        let green_2 = add_game_card(&mut board, Card::NumberCard{suit: Suit::Green, rank: 2}, 4);
+        let green_1 = add_game_card(&mut board, Card::NumberCard{suit: Suit::Green, rank: 1}, 4);
+
+        let new_board = board.do_automoves();
+
+        assert_eq!(get_card_stack_vec(&new_board, 4).len(), 0);
+        assert_vec_rc_ptr_eq(
+            &get_card_stack_vec(&new_board, 3),
+            &vec![red_2, red_9],
+        );
+        match &*new_board.goal_cells[0] {
+            CardCell::GoalCell{top_card: Some(top_card)} =>
+                assert!(Rc::ptr_eq(&top_card, &green_2)),
+            CardCell::GoalCell{top_card: None} => panic!("Missing card"),
+            _ => panic!("Non-GoalCell in goal_cell slot?"),
+        }
+        match &*new_board.goal_cells[1] {
+            CardCell::GoalCell{top_card: Some(top_card)} =>
+                assert!(Rc::ptr_eq(&top_card, &red_1)),
+            CardCell::GoalCell{top_card: None} => panic!("Missing card"),
+            _ => panic!("Non-GoalCell in goal_cell slot?"),
+        }
+        match &*new_board.goal_cells[2] {
+            CardCell::GoalCell{top_card: Some(top_card)} =>
+                assert!(Rc::ptr_eq(&top_card, &black_2)),
+            CardCell::GoalCell{top_card: None} => panic!("Missing card"),
+            _ => panic!("Non-GoalCell in goal_cell slot?"),
+        }
+    }
+
+    #[test]
+    /// Ensure the automove only makes safe moves, such that no card is moved to the goal area
+    /// if any other card on the board may need to be placed on it.
+    fn automove_limit() {
+        let mut board = empty_board();
+        let black_3 = add_game_card(&mut board, Card::NumberCard{suit: Suit::Black, rank: 3}, 3);
+        let red_9 = add_game_card(&mut board, Card::NumberCard{suit: Suit::Red, rank: 9}, 3);
+        let black_2 = add_game_card(&mut board, Card::NumberCard{suit: Suit::Black, rank: 2}, 3);
+        let black_1 = add_game_card(&mut board, Card::NumberCard{suit: Suit::Black, rank: 1}, 4);
+        let green_3 = add_game_card(&mut board, Card::NumberCard{suit: Suit::Green, rank: 3}, 4);
+        let green_2 = add_game_card(&mut board, Card::NumberCard{suit: Suit::Green, rank: 2}, 4);
+        let green_1 = add_game_card(&mut board, Card::NumberCard{suit: Suit::Green, rank: 1}, 4);
+
+        let new_board = board.do_automoves();
+
+        assert_vec_rc_ptr_eq(
+            &get_card_stack_vec(&new_board, 4),
+            &vec![black_1, green_3],
+        );
+        assert_vec_rc_ptr_eq(
+            &get_card_stack_vec(&new_board, 3),
+            &vec![black_3, red_9, black_2],
+        );
+        match &*new_board.goal_cells[0] {
+            CardCell::GoalCell{top_card: Some(top_card)} =>
+                assert!(Rc::ptr_eq(&top_card, &green_2)),
+            CardCell::GoalCell{top_card: None} => panic!("Missing card"),
+            _ => panic!("Non-GoalCell in goal_cell slot?"),
+        }
+        match &*new_board.goal_cells[1] {
+            CardCell::GoalCell{top_card: None} => (),
+            CardCell::GoalCell{top_card: Some(_)} => panic!("Unexpected card"),
+            _ => panic!("Non-GoalCell in goal_cell slot?"),
+        }
     }
 
     #[test]
