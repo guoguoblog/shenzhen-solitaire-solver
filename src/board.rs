@@ -79,7 +79,7 @@ impl CardCell {
                 new_stack.pop();
                 Some(CardCell::GameCell{card_stack: new_stack})
             },
-            CardCell::FreeCell{card} => Some(CardCell::FreeCell{card: None}),
+            CardCell::FreeCell{card: _} => Some(CardCell::FreeCell{card: None}),
             _ => None,
         }
     }
@@ -212,12 +212,34 @@ impl Board {
         else {None}
     }
 
+    pub fn is_solved(&self) -> bool {
+        for cell in self.game_cells.iter() {
+            match cell.top() {
+                Some(_) => return false,
+                None => (),
+            }
+        }
+        true
+    }
+
     // fn move_stack(&mut self, source: GameCell, dest: GameCell, num_cards: u8)
+
+    /// The maximum rank of number card that is safe to auto-move to the goal.
+    fn auto_safe_rank(&self) -> u8 {
+        self.goal_cells.iter().map(|cell| match cell.top() {
+            Some(rc) => match *rc {
+                Card::NumberCard{rank, ..} => rank,
+                _ => unreachable!(),  // no other card type should be in a goal cell
+            },
+            None => 0,
+        }).min().expect("goal cells is a sized array you goof.") + 2
+    }
 
     /// Perform moves which are always safe to do and return the resulting board.
     pub fn do_automoves(&self) -> Board {
         let mut board = self.clone();
         let mut progress = true;
+        let mut safe_rank = self.auto_safe_rank();
 
         while progress {
             progress = false;
@@ -225,11 +247,12 @@ impl Board {
                 progress = match cell.top() {
                     Some(rc_card) => match *rc_card {
                         Card::JokerCard => Board::move_card(&mut cell, &mut board.joker_cell),
-                        Card::NumberCard{..} => {
+                        Card::NumberCard{rank, ..} if rank <= safe_rank => {
                             let mut did = false;
                             for mut goal in board.goal_cells.iter_mut() {
                                 if Board::move_card(&mut cell, &mut goal) {
                                     did = true;
+                                    safe_rank = self.auto_safe_rank();
                                     break
                                 }
                             }
