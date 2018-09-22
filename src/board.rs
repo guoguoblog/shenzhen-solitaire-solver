@@ -469,19 +469,21 @@ mod tests {
         }
     }
 
-    fn add_game_card(board: &mut Board, card: Card, column: usize) {
+    fn add_game_card(board: &mut Board, card: Card, column: usize) -> Rc<Card> {
         // Indiana Jones the cell from the array.
         let mut rc_game_cell = mem::replace(
             &mut board.game_cells[column],
             Rc::new(CardCell::GameCell{card_stack: Vec::new()}),
         );
+        let rc_card = Rc::new(card);
         match Rc::get_mut(&mut rc_game_cell) {
-            Some(CardCell::GameCell{card_stack}) => card_stack.push(Rc::new(card)),
+            Some(CardCell::GameCell{card_stack}) => card_stack.push(rc_card.clone()),
             _ => panic!("Non-GameCell in game_cell slot!?"),
         }
         // Set it back, now that we've mutated it.
         // Don't need to Indiana Jones, because we put the temp cell into the toilet 🚽
         board.game_cells[column] = rc_game_cell;
+        rc_card
     }
 
     fn get_card_stack_vec(board: &Board, column: usize) -> &Vec<Rc<Card>> {
@@ -492,6 +494,7 @@ mod tests {
     }
 
     #[test]
+    /// Ensure a joker on the game board is automoved to the goal.
     fn automove_jokers() {
         let board = {
             let mut board = empty_board();
@@ -505,5 +508,24 @@ mod tests {
             _ => panic!("Non-JokerCell in joker_cell slot?"),
         }
         assert_eq!(get_card_stack_vec(&new_board, 3).len(), 0);
+    }
+
+    #[test]
+    /// Ensure 1s on the game board are automoved to the goal.
+    fn automove_1() {
+        let green_1;
+        let board = {
+            let mut board = empty_board();
+            green_1 = add_game_card(&mut board, Card::NumberCard{suit: Suit::Green, rank: 1}, 5);
+            board
+        };
+        assert_eq!(get_card_stack_vec(&board, 5).len(), 1);
+        let new_board = board.do_automoves();
+        match &*new_board.goal_cells[0] {
+            CardCell::GoalCell{top_card: Some(top_card)} =>
+                assert!(Rc::ptr_eq(&top_card, &green_1)),
+            _ => panic!("Non-GoalCell in goal_cell slot?"),
+        }
+        assert_eq!(get_card_stack_vec(&new_board, 5).len(), 0);
     }
 }
