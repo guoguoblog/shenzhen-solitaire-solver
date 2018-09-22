@@ -443,6 +443,13 @@ mod tests {
     use std::mem;
     use super::*;
 
+    fn assert_vec_rc_ptr_eq<T>(left: &Vec<Rc<T>>, right: &Vec<Rc<T>>) {
+        assert_eq!(left.len(), right.len());
+        for (left_elem, right_elem) in left.iter().zip(right) {
+            assert!(Rc::ptr_eq(left_elem, right_elem));
+        }
+    }
+
     fn empty_board() -> Board {
         Board {
             joker_cell: Rc::new(CardCell::JokerCell{has_joker: false}),
@@ -527,5 +534,29 @@ mod tests {
             _ => panic!("Non-GoalCell in goal_cell slot?"),
         }
         assert_eq!(get_card_stack_vec(&new_board, 5).len(), 0);
+    }
+
+    #[test]
+    /// Ensure you can move a stack to another stack.
+    fn move_stack() {
+        let mut board = empty_board();
+        add_game_card(&mut board, Card::NumberCard{suit: Suit::Red, rank: 7}, 0);
+        let green_6 = add_game_card(&mut board, Card::NumberCard{suit: Suit::Green, rank: 6}, 0);
+        let red_5 = add_game_card(&mut board, Card::NumberCard{suit: Suit::Red, rank: 5}, 0);
+        let black_4 = add_game_card(&mut board, Card::NumberCard{suit: Suit::Black, rank: 4}, 0);
+        let black_8 = add_game_card(&mut board, Card::NumberCard{suit: Suit::Black, rank: 8}, 1);
+        let black_7 = add_game_card(&mut board, Card::NumberCard{suit: Suit::Black, rank: 7}, 1);
+        // let board = board;  // remove mutability
+        assert_eq!(get_card_stack_vec(&board, 0).len(), 4);
+        assert_eq!(get_card_stack_vec(&board, 1).len(), 2);
+        let new_board = match board.move_stack(0, 1) {
+            Some(new_board) => new_board,
+            None => panic!("did not move stack"),
+        };
+        assert_eq!(get_card_stack_vec(&new_board, 0).len(), 1);
+        assert_vec_rc_ptr_eq(
+            &get_card_stack_vec(&new_board, 1),
+            &vec![black_8, black_7, green_6, red_5, black_4],
+        );
     }
 }
