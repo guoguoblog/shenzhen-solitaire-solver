@@ -436,3 +436,74 @@ fn distribute<T>(vec: Vec<T>, n: usize) -> Vec<Vec<T>> {
     }
     chunks
 }
+
+
+#[cfg(test)]
+mod tests {
+    use std::mem;
+    use super::*;
+
+    fn empty_board() -> Board {
+        Board {
+            joker_cell: Rc::new(CardCell::JokerCell{has_joker: false}),
+            free_cells: [
+                Rc::new(CardCell::FreeCell{card: None}),
+                Rc::new(CardCell::FreeCell{card: None}),
+                Rc::new(CardCell::FreeCell{card: None}),
+            ],
+            goal_cells: [
+                Rc::new(CardCell::GoalCell{top_card: None}),
+                Rc::new(CardCell::GoalCell{top_card: None}),
+                Rc::new(CardCell::GoalCell{top_card: None}),
+            ],
+            game_cells: [
+                Rc::new(CardCell::GameCell{card_stack: Vec::new()}),
+                Rc::new(CardCell::GameCell{card_stack: Vec::new()}),
+                Rc::new(CardCell::GameCell{card_stack: Vec::new()}),
+                Rc::new(CardCell::GameCell{card_stack: Vec::new()}),
+                Rc::new(CardCell::GameCell{card_stack: Vec::new()}),
+                Rc::new(CardCell::GameCell{card_stack: Vec::new()}),
+                Rc::new(CardCell::GameCell{card_stack: Vec::new()}),
+                Rc::new(CardCell::GameCell{card_stack: Vec::new()}),
+            ],
+        }
+    }
+
+    fn add_game_card(board: &mut Board, card: Card, column: usize) {
+        // Indiana Jones the cell from the array.
+        let mut rc_game_cell = mem::replace(
+            &mut board.game_cells[column],
+            Rc::new(CardCell::GameCell{card_stack: Vec::new()}),
+        );
+        match Rc::get_mut(&mut rc_game_cell) {
+            Some(CardCell::GameCell{card_stack}) => card_stack.push(Rc::new(card)),
+            _ => panic!("Non-GameCell in game_cell slot!?"),
+        }
+        // Set it back, now that we've mutated it.
+        // Don't need to Indiana Jones, because we put the temp cell into the toilet 🚽
+        board.game_cells[column] = rc_game_cell;
+    }
+
+    fn get_card_stack_vec(board: &Board, column: usize) -> &Vec<Rc<Card>> {
+        match &*board.game_cells[column] {
+            &CardCell::GameCell{ref card_stack} => card_stack,
+            _ => panic!("Non-GameCell in game_cell slot!?"),
+        }
+    }
+
+    #[test]
+    fn automove_jokers() {
+        let board = {
+            let mut board = empty_board();
+            add_game_card(&mut board, Card::JokerCard, 3);
+            board
+        };
+        assert_eq!(get_card_stack_vec(&board, 3).len(), 1);
+        let new_board = board.do_automoves();
+        match *new_board.joker_cell {
+            CardCell::JokerCell{has_joker} => assert!(has_joker),
+            _ => panic!("Non-JokerCell in joker_cell slot?"),
+        }
+        assert_eq!(get_card_stack_vec(&new_board, 3).len(), 0);
+    }
+}
