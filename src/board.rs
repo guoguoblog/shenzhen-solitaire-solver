@@ -15,12 +15,26 @@ pub trait TerminalPrintable {
     fn print(&self) -> String;
 }
 
+#[derive(Debug)]
 enum Card {
     JokerCard,
     DragonCard{suit: Suit},
     NumberCard{suit: Suit, rank: u8},
     /// Dummy "card" representing an immovable stack of dragons in a free cell.
     DragonStack,
+}
+impl Card {
+    fn can_hold(&self, card: Rc<Card>) -> bool {
+        match (&*self, &*card) {
+            (
+                &Card::NumberCard{suit: self_suit, rank: self_rank},
+                &Card::NumberCard{suit: card_suit, rank: card_rank},
+            ) if self_suit != card_suit && self_rank == card_rank + 1 => {
+                true
+            },
+            _ => false,
+        }
+    }
 }
 impl TerminalPrintable for Card {
     fn print(&self) -> String {
@@ -41,26 +55,42 @@ enum CardCell {
 }
 impl CardCell {
     fn accept(&self, card: &Rc<Card>) -> Option<Self> {
-        match self {
-            CardCell::JokerCell{..} => match **card {
-                Card::JokerCard => Some(CardCell::JokerCell{has_joker: true}),
-                _ => None,
-            },
-            CardCell::GoalCell{top_card: None} => match **card {
-                Card::NumberCard{rank: 1, ..} => Some(CardCell::GoalCell{top_card: Some(card.clone())}),
-                _ => None,
-            },
-            CardCell::GoalCell{top_card: Some(ref top_card)} => match **top_card {
-                Card::NumberCard{suit: top_suit, rank: top_rank} => match **card {
-                    Card::NumberCard{suit, rank} if top_suit == suit && top_rank + 1 == rank =>
+        match (self, &**card) {
+            (CardCell::JokerCell{..}, &Card::JokerCard) =>
+                Some(CardCell::JokerCell{has_joker: true}),
+            (CardCell::GoalCell{top_card: None}, &Card::NumberCard{rank: 1, ..}) =>
+                Some(CardCell::GoalCell{top_card: Some(card.clone())}),
+            (CardCell::GoalCell{top_card: Some(ref top_card)}, &Card::NumberCard{suit, rank}) =>
+                match **top_card {
+                    Card::NumberCard{suit: top_suit, rank: top_rank}
+                    if top_suit == suit && top_rank + 1 == rank =>
                         Some(CardCell::GoalCell{top_card: Some(card.clone())}),
                     _ => None,
-                },
-                _ => None,
-            },
+                }
             _ => None,
         }
+    }
 
+    /// Returns a clone of this stack with the passed card stack on top, or None if the card stack
+    /// does not fit.
+    ///
+    /// Assumes `cards` is properly formed, ie not empty and all NumberCards, in descending order,
+    /// with no matching Suit across consecutive cards.
+    fn accept_stack(&self, cards: &[Rc<Card>]) -> Option<Self> {
+        if let CardCell::GameCell{card_stack} = self {
+            // if let Some(rc_card) = card_stack.last() {
+            //     match (&**rc_card, &**cards.first().expect("cards must be nonempty")) {
+            //         (&Card::NumberCard{..}, &Card::NumberCard{..}) => {
+            //             println!("gr8");
+            //         },
+            //         _ => (),
+            //     }
+            // }
+            let mut new_stack = card_stack.clone();
+            new_stack.extend_from_slice(cards);
+            Some(CardCell::GameCell{card_stack: new_stack})
+        }
+        else {panic!("Only GameCells may accept stacks.");}
     }
 
     fn top(&self) -> Option<Rc<Card>> {
@@ -72,18 +102,57 @@ impl CardCell {
         }
     }
 
-    fn pop(&self) -> Option<Self> {
+    fn pop(&self) -> Self {
         match self {
             CardCell::GameCell{card_stack} => {
                 let mut new_stack = card_stack.clone();
                 new_stack.pop();
-                Some(CardCell::GameCell{card_stack: new_stack})
+                CardCell::GameCell{card_stack: new_stack}
             },
-            CardCell::FreeCell{card: _} => Some(CardCell::FreeCell{card: None}),
-            _ => None,
+            CardCell::FreeCell{card: _} => CardCell::FreeCell{card: None},
+            _ => panic!("May not take cards from this cell type"),
+        }
+    }
+
+    fn pop_n(&self, n: usize) -> Self {
+        match self {
+            CardCell::GameCell{card_stack} => {
+                CardCell::GameCell{card_stack: card_stack[..card_stack.len() - n].to_vec()}
+            },
+            _ => panic!("May not take multiple cards from non-GameCells"),
+        }
+    }
+
+    fn iter_stack(&self) -> Vec<Rc<Card>> {
+        match &self {
+            CardCell::GameCell{card_stack} => {
+                let mut result: Vec<Rc<Card>> = Vec::new();
+                let mut iter = card_stack.iter().rev();
+                let mut last_card: Rc<Card>;
+                if let Some(rc_card) = iter.next() {
+                    last_card = rc_card.clone();
+                    result.push(last_card.clone());  // TODO: can we avoid one of these clones??
+                }
+                else {
+                    return result;
+                }
+                for rc_card in iter {
+                    if rc_card.can_hold(last_card) {
+                        last_card = rc_card.clone();
+                        result.push(last_card.clone());
+                    }
+                    else {
+                        break;
+                    }
+                }
+                result.reverse();
+                result
+            },
+            _ => panic!("iter_stack is only for GameCells")
         }
     }
 }
+
 impl TerminalPrintable for CardCell {
     fn print(&self) -> String {
         match self {
@@ -154,10 +223,38 @@ impl Board {
     fn move_card(source: &mut Rc<CardCell>, dest: &mut Rc<CardCell>) -> bool {
         if let Some(new_cell) = dest.accept(&source.top().expect("me am play gods")) {
             *dest = Rc::new(new_cell);
-            *source = Rc::new(source.pop().expect("cripes I should really be checkin these"));
+            *source = Rc::new(source.pop());
             return true;
         }
         false
+    }
+
+    /// Move a stack from one game cell to another by index, and return the resulting board.
+    ///
+    /// This function only handles moving stacks when it is unambiguous how many cards will be
+    /// moved, ie a DragonCard to an empty cell or a stack of NumberCards to another stack of
+    /// NumberCards. To move a stack of NumberCards to an empty cell, see `move_n_cards`.
+    ///
+    /// If this function is unable to accomodate a move or the move is illegal, None is returned.
+    pub fn move_stack(&self, source: usize, dest: usize) -> Option<Board> {
+        let top_dest_rank = match *self.game_cells[dest].top()? {
+            Card::NumberCard{rank, ..} => rank,
+            _ => return None,
+        };
+        let mut board = self.clone();
+        let stack = board.game_cells[source].iter_stack();
+        let top_source_rank = match *(*stack.last()?) {
+            Card::NumberCard{rank, ..} => rank,
+            _ => return None,
+        };
+        let cards_to_grab = top_dest_rank.saturating_sub(top_source_rank) as usize;
+        if 0 >= cards_to_grab || cards_to_grab > stack.len() {
+            return None;
+        }
+        board.game_cells[source] = Rc::new(board.game_cells[source].pop_n(cards_to_grab));
+        let substack = &stack[stack.len() - cards_to_grab..];
+        board.game_cells[dest] = Rc::new(board.game_cells[dest].accept_stack(substack)?);
+        Some(board)
     }
 
     /// Helper function to `stack_dragons`: remove all exposed dragons of the given suit from
@@ -170,7 +267,7 @@ impl Board {
             match cell.top() {
                 Some(rc_card) => match *rc_card {
                     Card::DragonCard{suit: dsuit} if dsuit == suit => {
-                        *cell = Rc::new(cell.pop().expect("expected dragon but found empty stack"));
+                        *cell = Rc::new(cell.pop());
                         count += 1;
                         if count == 4 {
                             return true
@@ -197,15 +294,12 @@ impl Board {
         }
         let mut found = false;
         for mut cell in board.free_cells.iter_mut() {
-            match cell.top() {
-                None => {
-                    *cell = Rc::new(CardCell::FreeCell{card: Some(Rc::new(Card::DragonStack))});
-                    // Can't just return here, because we're already
-                    // borrowing `board` to iterate it, I guess. 🤮
-                    found = true;
-                    break;
-                },
-                _ => (),
+            if cell.top().is_none() {
+                *cell = Rc::new(CardCell::FreeCell{card: Some(Rc::new(Card::DragonStack))});
+                // Can't just return here, because we're already
+                // borrowing `board` to iterate it, I guess. 🤮
+                found = true;
+                break;
             }
         }
         if found {Some(board)}
@@ -214,15 +308,12 @@ impl Board {
 
     pub fn is_solved(&self) -> bool {
         for cell in self.game_cells.iter() {
-            match cell.top() {
-                Some(_) => return false,
-                None => (),
+            if let Some(_) = cell.top() {
+                return false;
             }
         }
         true
     }
-
-    // fn move_stack(&mut self, source: GameCell, dest: GameCell, num_cards: u8)
 
     /// The maximum rank of number card that is safe to auto-move to the goal.
     fn auto_safe_rank(&self) -> u8 {
@@ -252,7 +343,6 @@ impl Board {
                             for mut goal in board.goal_cells.iter_mut() {
                                 if Board::move_card(&mut cell, &mut goal) {
                                     did = true;
-                                    safe_rank = self.auto_safe_rank();
                                     break
                                 }
                             }
@@ -263,6 +353,7 @@ impl Board {
                     None => false,
                 } || progress;
             }
+            safe_rank = board.auto_safe_rank();
         }
         board
     }
