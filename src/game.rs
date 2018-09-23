@@ -87,9 +87,8 @@ impl Game {
         self.board = self.board.do_automoves();
         self.print();
         let g = getch::Getch::new();
-        let mut chr: u8 = 0;
-        while chr != 3 {
-            chr = match g.getch() {
+        while !self.board.is_solved() {
+            let chr = match g.getch() {
                 Ok(value) => value,
                 Err(msg) => {
                     println!("Ok guess we're done ({})", msg);
@@ -116,9 +115,12 @@ impl Game {
             GameMode::SelectSource => {
                 // Can't select goal cells
                 if 4 <= self.cursor && self.cursor <= 6 {return;}
-                // if selection is none don't select
-                if self.cell_at(self.cursor).top().is_some() {
-                    self.mode = GameMode::SelectDestination{cursor: self.cursor};
+                // if selection is none or a DragonStack, don't select
+                if let Some(rc_card) = self.cell_at(self.cursor).top() {
+                    match &*rc_card {
+                        Card::DragonStack => (),
+                        _ => self.mode = GameMode::SelectDestination{cursor: self.cursor},
+                    }
                 }
             },
             GameMode::SelectDestination{cursor} => {

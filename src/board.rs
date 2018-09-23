@@ -42,6 +42,8 @@ pub enum CardCell {
 impl CardCell {
     fn accept(&self, card: &Rc<Card>) -> Option<Self> {
         match (self, &**card) {
+            (_, &Card::DragonStack) => None,
+
             (CardCell::JokerCell{..}, &Card::JokerCard) =>
                 Some(CardCell::JokerCell{has_joker: true}),
 
@@ -485,6 +487,12 @@ mod tests {
         rc_card
     }
 
+    fn set_free_card(board: &mut Board, card: Card, column: usize) -> Rc<Card> {
+        let rc_card = Rc::new(card);
+        board.free_cells[column] = Rc::new(CardCell::FreeCell{card: Some(rc_card.clone())});
+        rc_card
+    }
+
     fn get_card_stack_vec(board: &Board, column: usize) -> &Vec<Rc<Card>> {
         match &*board.game_cells[column] {
             &CardCell::GameCell{ref card_stack} => card_stack,
@@ -654,6 +662,18 @@ mod tests {
         assert!(board.move_stack(
             &CardCellIndex::GameCellIndex(0),
             &CardCellIndex::GameCellIndex(1),
+        ).is_none());
+    }
+
+    #[test]
+    /// Ensure you can't move a DragonStack at all
+    fn cant_move_dragon_stack() {
+        let mut board = empty_board();
+        set_free_card(&mut board, Card::DragonStack, 0);
+
+        assert!(board.move_stack(
+            &CardCellIndex::FreeCellIndex(0),
+            &CardCellIndex::GameCellIndex(0),
         ).is_none());
     }
 }
