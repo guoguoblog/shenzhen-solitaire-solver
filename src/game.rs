@@ -2,8 +2,8 @@ extern crate getch;
 
 use std::rc::Rc;
 
-use ::board::{Board, CardCell, Card};
-use ::display::{display_card, display_cell};
+use ::board::{Board, CardCell, Card, CardCellIndex};
+use ::display::{display_cell};
 use ::util;
 
 /// Formats a string literal as a "selected" marker in the game ui.
@@ -122,8 +122,11 @@ impl Game {
                 }
             },
             GameMode::SelectDestination{cursor} => {
-                if self.cursor < 7 {unimplemented!();}
-                match self.board.move_stack(cursor as usize - 7, self.cursor as usize - 7) {
+                let new_board = self.board.move_stack(
+                    &Game::cursor_to_cci(cursor),
+                    &Game::cursor_to_cci(self.cursor),
+                );
+                match new_board {
                     Some(board) => {
                         self.board = board.do_automoves();
                     }
@@ -131,6 +134,15 @@ impl Game {
                 }
                 self.mode = GameMode::SelectSource;
             }
+        }
+    }
+
+    fn cursor_to_cci(cursor: u8) -> CardCellIndex {
+        match cursor {
+            1...3 => CardCellIndex::FreeCellIndex(cursor as usize),
+            4...6 => CardCellIndex::GoalCellIndex(cursor as usize - 4),
+            7...14 => CardCellIndex::GameCellIndex(cursor as usize - 7),
+            _ => panic!(format!("Invalid cursor value {}", cursor)),
         }
     }
 

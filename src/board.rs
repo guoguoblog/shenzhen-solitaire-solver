@@ -40,6 +40,14 @@ pub enum CardCell {
     GoalCell{top_card: Option<Rc<Card>>},
 }
 impl CardCell {
+    //    _    JokerCard| JokerCell  _
+    // GameCell NumCard | GameCell NumCard
+    // GameCell    _    | FreeCell None
+    // GameCell NumCard | GoalCell NumCard
+    // FreeCell    _    | FreeCell None
+    // FreeCell    _    | GameCell None
+    // FreeCell NumCard | GameCell NumCard
+    // FreeCell NumCard | GoalCell NumCard
     fn accept(&self, card: &Rc<Card>) -> Option<Self> {
         match (self, &**card) {
             (CardCell::JokerCell{..}, &Card::JokerCard) =>
@@ -137,6 +145,13 @@ impl CardCell {
     }
 }
 
+/// Enum to refer to the different card cells on a board.
+pub enum CardCellIndex {
+    FreeCellIndex(usize),
+    GoalCellIndex(usize),
+    GameCellIndex(usize),
+}
+
 #[derive(Clone)]
 pub struct Board {
     joker_cell: Rc<CardCell>,
@@ -194,20 +209,16 @@ impl Board {
         false
     }
 
-    /// Move a stack from one game cell to another by index, and return the resulting board.
+    /// Move a stack of number cards from one game cell to another, and return the resulting board.
     ///
-    /// This function only handles moving stacks when it is unambiguous how many cards will be
-    /// moved, ie a DragonCard to an empty cell or a stack of NumberCards to another stack of
-    /// NumberCards. To move a stack of NumberCards to an empty cell, see `move_n_cards`.
-    ///
-    /// If this function is unable to accomodate a move or the move is illegal, None is returned.
-    pub fn move_stack(&self, source: usize, dest: usize) -> Option<Board> {
+    /// Only handles the case where both source and dest refer to a GameCell whose top card is a
+    /// NumberCard. For more general card moving, see `move_stack` or `move_n_cards`.
+    fn move_number_card_stack(&self, source: usize, dest: usize) -> Option<Board> {
         let top_dest_rank = match *self.game_cells[dest].top()? {
             Card::NumberCard{rank, ..} => rank,
             _ => return None,
         };
-        let mut board = self.clone();
-        let stack = board.game_cells[source].iter_stack();
+        let stack = self.game_cells[source].iter_stack();
         let top_source_rank = match *(*stack.last()?) {
             Card::NumberCard{rank, ..} => rank,
             _ => return None,
@@ -216,11 +227,59 @@ impl Board {
         if 0 >= cards_to_grab || cards_to_grab > stack.len() {
             return None;
         }
+        // Now that we've decided how many cards to move, let's move em!
+        let mut board = self.clone();
         board.game_cells[source] = Rc::new(board.game_cells[source].pop_n(cards_to_grab));
         let substack = &stack[stack.len() - cards_to_grab..];
         board.game_cells[dest] = Rc::new(board.game_cells[dest].accept_stack(substack)?);
         Some(board)
     }
+
+    /// Move a stack from one card cell to another, and return the resulting board.
+    ///
+    /// This function only handles moving stacks when it is unambiguous how many cards will be
+    /// moved, ie a DragonCard to an empty cell or a stack of NumberCards to another stack of
+    /// NumberCards. To move a stack of NumberCards to an empty game cell, see `move_n_cards`.
+    ///
+    /// If this function is unable to accomodate a move or the move is illegal, None is returned.
+    pub fn move_stack(&self, source: &CardCellIndex, dest: &CardCellIndex) -> Option<Board> {
+        if let (
+                    &CardCellIndex::GameCellIndex(source_idx),
+                    &CardCellIndex::GameCellIndex(dest_idx),
+                ) = (source, dest) {
+            // If there's already something in the destination, better let move_number_card_stack
+            // handle it (because only NumberCards can move to an occupied dest).
+            if self.game_cells[dest_idx].top().is_some() {
+                return self.move_number_card_stack(source_idx, dest_idx);
+            }
+            // If our "stack" of NumberCards is one deep we can just move that card.
+            // Otherwise we need to handle this in `move_n_cards`
+            if self.game_cells[source_idx].iter_stack().len() > 1 {
+                return None
+            }
+        }
+        let mut board = self.clone();
+        let can_move = {
+            let mut source_cell = board.get_cell_mut(source);
+            let mut dest_cell = board.get_cell_mut(dest);
+            Board::move_card(&mut source_cell, &mut dest_cell)
+        };
+        if can_move {Some(board)}
+        else {None}
+    }
+
+    fn get_cell_mut(&mut self, index: &CardCellIndex) -> &mut Rc<CardCell> {
+        match index {
+            &CardCellIndex::FreeCellIndex(n) => &mut self.free_cells[n],
+            &CardCellIndex::GoalCellIndex(n) => &mut self.goal_cells[n],
+            &CardCellIndex::GameCellIndex(n) => &mut self.game_cells[n],
+        }
+    }
+
+    // GameCell NumCard | GameCell None
+    // pub fn move_n_cards(&self, source: usize, dest: usize, n: usize) -> Option<Board> {
+
+    // }
 
     /// Helper function to `stack_dragons`: remove all exposed dragons of the given suit from
     /// the board. Returns true if all four dragons are removed.
@@ -299,14 +358,14 @@ impl Board {
 
         while progress {
             progress = false;
-            for mut cell in board.game_cells.iter_mut() {
+            for mut cell in board.game_cells.iter_mut().chain(board.free_cells.iter_mut()) {
                 progress = match cell.top() {
                     Some(rc_card) => match *rc_card {
-                        Card::JokerCard => Board::move_card(&mut cell, &mut board.joker_cell),
+                        Card::JokerCard => Board::move_card(cell, &mut board.joker_cell),
                         Card::NumberCard{rank, ..} if rank <= safe_rank => {
                             let mut did = false;
                             for mut goal in board.goal_cells.iter_mut() {
-                                if Board::move_card(&mut cell, &mut goal) {
+                                if Board::move_card(cell, goal) {
                                     did = true;
                                     break
                                 }
@@ -540,7 +599,10 @@ mod tests {
 
         assert_eq!(get_card_stack_vec(&board, 0).len(), 4);
         assert_eq!(get_card_stack_vec(&board, 1).len(), 2);
-        let new_board = match board.move_stack(0, 1) {
+        let new_board = match board.move_stack(
+            &CardCellIndex::GameCellIndex(0),
+            &CardCellIndex::GameCellIndex(1),
+        ) {
             Some(new_board) => new_board,
             None => panic!("did not move stack"),
         };
@@ -558,7 +620,10 @@ mod tests {
         add_game_card(&mut board, Card::NumberCard{suit: Suit::Green, rank: 6}, 0);
         add_game_card(&mut board, Card::NumberCard{suit: Suit::Red, rank: 9}, 1);
 
-        assert!(board.move_stack(1, 0).is_none());
+        assert!(board.move_stack(
+            &CardCellIndex::GameCellIndex(1),
+            &CardCellIndex::GameCellIndex(0),
+        ).is_none());
     }
 
     #[test]
@@ -568,6 +633,9 @@ mod tests {
         add_game_card(&mut board, Card::NumberCard{suit: Suit::Red, rank: 6}, 0);
         add_game_card(&mut board, Card::NumberCard{suit: Suit::Red, rank: 7}, 1);
 
-        assert!(board.move_stack(0, 1).is_none());
+        assert!(board.move_stack(
+            &CardCellIndex::GameCellIndex(0),
+            &CardCellIndex::GameCellIndex(1),
+        ).is_none());
     }
 }
