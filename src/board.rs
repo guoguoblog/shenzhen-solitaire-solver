@@ -61,11 +61,13 @@ impl CardCell {
                     _ => None,
                 }
 
-            (CardCell::GameCell{card_stack}, _) if card_stack.is_empty() =>
-                Some(CardCell::GameCell{card_stack: vec![card.clone()]}),
-
-            // We skip implementing NumCard -> GameCell{Some} here because it's a special case of
-            // moving a stack of one card. Kind of gross to leave this incomplete, but ᖍ(•⟝•)ᖌ
+            (CardCell::GameCell{card_stack}, _) =>
+                if card_stack.is_empty() {
+                    Some(CardCell::GameCell{card_stack: vec![card.clone()]})
+                }
+                else {
+                    self.accept_stack(&[card.clone()])
+                }
 
             _ => None,
         }
@@ -675,5 +677,26 @@ mod tests {
             &CardCellIndex::FreeCellIndex(0),
             &CardCellIndex::GameCellIndex(0),
         ).is_none());
+    }
+
+    #[test]
+    /// Ensure you can stack a NumberCard from a FreeCell on a NumberCard in a GameCell.
+    fn move_stack_via_free() {
+        let mut board = empty_board();
+        let black_4 = set_free_card(&mut board, Card::NumberCard{suit: Suit::Black, rank: 4}, 0);
+        let green_5 = add_game_card(&mut board, Card::NumberCard{suit: Suit::Green, rank: 5}, 0);
+
+        let new_board = match board.move_stack(
+            &CardCellIndex::FreeCellIndex(0),
+            &CardCellIndex::GameCellIndex(0),
+        ) {
+            Some(new_board) => new_board,
+            None => panic!("did not move stack"),
+        };
+
+        assert_vec_rc_ptr_eq(
+            &get_card_stack_vec(&new_board, 0),
+            &vec![green_5, black_4],
+        );
     }
 }
