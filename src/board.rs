@@ -78,14 +78,12 @@ impl CardCell {
     /// with no matching Suit across consecutive cards.
     fn accept_stack(&self, cards: &[Rc<Card>]) -> Option<Self> {
         if let CardCell::GameCell{card_stack} = self {
-            // if let Some(rc_card) = card_stack.last() {
-            //     match (&**rc_card, &**cards.first().expect("cards must be nonempty")) {
-            //         (&Card::NumberCard{..}, &Card::NumberCard{..}) => {
-            //             println!("gr8");
-            //         },
-            //         _ => (),
-            //     }
-            // }
+            if let Some(rc_card) = card_stack.last() {
+                let card = &cards.first().expect("cards must be nonempty");
+                if !rc_card.can_hold(card) {
+                    return None;
+                }
+            }
             let mut new_stack = card_stack.clone();
             new_stack.extend_from_slice(cards);
             Some(CardCell::GameCell{card_stack: new_stack})
@@ -644,5 +642,15 @@ mod tests {
         add_game_card(&mut board, Card::NumberCard{suit: Suit::Red, rank: 9}, 1);
 
         assert!(board.move_stack(1, 0).is_none());
+    }
+
+    #[test]
+    /// Ensure you can't move a stack onto a stack of the same suit
+    fn move_stack_suit_match() {
+        let mut board = empty_board();
+        add_game_card(&mut board, Card::NumberCard{suit: Suit::Red, rank: 6}, 0);
+        add_game_card(&mut board, Card::NumberCard{suit: Suit::Red, rank: 7}, 1);
+
+        assert!(board.move_stack(0, 1).is_none());
     }
 }
