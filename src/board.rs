@@ -40,20 +40,17 @@ pub enum CardCell {
     GoalCell{top_card: Option<Rc<Card>>},
 }
 impl CardCell {
-    //    _    JokerCard| JokerCell  _
-    // GameCell NumCard | GameCell NumCard
-    // GameCell    _    | FreeCell None
-    // GameCell NumCard | GoalCell NumCard
-    // FreeCell    _    | FreeCell None
-    // FreeCell    _    | GameCell None
-    // FreeCell NumCard | GameCell NumCard
-    // FreeCell NumCard | GoalCell NumCard
     fn accept(&self, card: &Rc<Card>) -> Option<Self> {
         match (self, &**card) {
             (CardCell::JokerCell{..}, &Card::JokerCard) =>
                 Some(CardCell::JokerCell{has_joker: true}),
+
+            (CardCell::FreeCell{card: None}, _) =>
+                Some(CardCell::FreeCell{card: Some(card.clone())}),
+
             (CardCell::GoalCell{top_card: None}, &Card::NumberCard{rank: 1, ..}) =>
                 Some(CardCell::GoalCell{top_card: Some(card.clone())}),
+
             (CardCell::GoalCell{top_card: Some(ref top_card)}, &Card::NumberCard{suit, rank}) =>
                 match **top_card {
                     Card::NumberCard{suit: top_suit, rank: top_rank}
@@ -61,6 +58,13 @@ impl CardCell {
                         Some(CardCell::GoalCell{top_card: Some(card.clone())}),
                     _ => None,
                 }
+
+            (CardCell::GameCell{card_stack}, _) if card_stack.is_empty() =>
+                Some(CardCell::GameCell{card_stack: vec![card.clone()]}),
+
+            // We skip implementing NumCard -> GameCell{Some} here because it's a special case of
+            // moving a stack of one card. Kind of gross to leave this incomplete, but ᖍ(•⟝•)ᖌ
+
             _ => None,
         }
     }
@@ -238,11 +242,12 @@ impl Board {
     /// Move a stack from one card cell to another, and return the resulting board.
     ///
     /// This function only handles moving stacks when it is unambiguous how many cards will be
-    /// moved, ie a DragonCard to an empty cell or a stack of NumberCards to another stack of
+    /// moved, eg a DragonCard to an empty cell or a stack of NumberCards to another stack of
     /// NumberCards. To move a stack of NumberCards to an empty game cell, see `move_n_cards`.
     ///
     /// If this function is unable to accomodate a move or the move is illegal, None is returned.
     pub fn move_stack(&self, source: &CardCellIndex, dest: &CardCellIndex) -> Option<Board> {
+        // We might need to special-case moving between game cells, for stacks of num cards.
         if let (
                     &CardCellIndex::GameCellIndex(source_idx),
                     &CardCellIndex::GameCellIndex(dest_idx),
@@ -258,21 +263,34 @@ impl Board {
                 return None
             }
         }
+
+        // Safe to (try to) move a single card.
+        // We're not able to leverage `move_card` here, because we have no way to prove to Rust
+        // that we don't want to mutably borrow the same cell twice.
+        let source_cell = self.get_cell(source);
+        let dest_cell = self.get_cell(dest);
+        let new_dest = dest_cell.accept(&source_cell.top()?)?;
+
         let mut board = self.clone();
-        let can_move = {
-            let mut source_cell = board.get_cell_mut(source);
-            let mut dest_cell = board.get_cell_mut(dest);
-            Board::move_card(&mut source_cell, &mut dest_cell)
-        };
-        if can_move {Some(board)}
-        else {None}
+        board.replace_cell(dest, new_dest);
+        board.replace_cell(source, source_cell.pop());
+        Some(board)
     }
 
-    fn get_cell_mut(&mut self, index: &CardCellIndex) -> &mut Rc<CardCell> {
+    fn replace_cell(&mut self, index: &CardCellIndex, new_cell: CardCell) {
+        // might be nice to check that the cell type is right
         match index {
-            &CardCellIndex::FreeCellIndex(n) => &mut self.free_cells[n],
-            &CardCellIndex::GoalCellIndex(n) => &mut self.goal_cells[n],
-            &CardCellIndex::GameCellIndex(n) => &mut self.game_cells[n],
+            &CardCellIndex::FreeCellIndex(n) => self.free_cells[n] = Rc::new(new_cell),
+            &CardCellIndex::GoalCellIndex(n) => self.goal_cells[n] = Rc::new(new_cell),
+            &CardCellIndex::GameCellIndex(n) => self.game_cells[n] = Rc::new(new_cell),
+        }
+    }
+
+    fn get_cell(&self, index: &CardCellIndex) -> &Rc<CardCell> {
+        match index {
+            &CardCellIndex::FreeCellIndex(n) => &self.free_cells[n],
+            &CardCellIndex::GoalCellIndex(n) => &self.goal_cells[n],
+            &CardCellIndex::GameCellIndex(n) => &self.game_cells[n],
         }
     }
 

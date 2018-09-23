@@ -139,7 +139,7 @@ impl Game {
 
     fn cursor_to_cci(cursor: u8) -> CardCellIndex {
         match cursor {
-            1...3 => CardCellIndex::FreeCellIndex(cursor as usize),
+            1...3 => CardCellIndex::FreeCellIndex(cursor as usize - 1),
             4...6 => CardCellIndex::GoalCellIndex(cursor as usize - 4),
             7...14 => CardCellIndex::GameCellIndex(cursor as usize - 7),
             _ => panic!(format!("Invalid cursor value {}", cursor)),
