@@ -11,12 +11,8 @@ pub enum Suit {
     Red,
 }
 
-pub trait TerminalPrintable {
-    fn print(&self) -> String;
-}
-
 #[derive(Debug)]
-enum Card {
+pub enum Card {
     JokerCard,
     DragonCard{suit: Suit},
     NumberCard{suit: Suit, rank: u8},
@@ -36,18 +32,8 @@ impl Card {
         }
     }
 }
-impl TerminalPrintable for Card {
-    fn print(&self) -> String {
-        match self {
-            Card::JokerCard => String::from("J"),
-            Card::DragonCard{suit} => term_color(*suit, "D".to_string()),
-            Card::NumberCard{suit, rank} => term_color(*suit, rank.to_string()),
-            Card::DragonStack => String::from("X"),
-        }
-    }
-}
 
-enum CardCell {
+pub enum CardCell {
     JokerCell{has_joker: bool},
     FreeCell{card: Option<Rc<Card>>},
     GameCell{card_stack: Vec<Rc<Card>>},
@@ -91,7 +77,7 @@ impl CardCell {
         else {panic!("Only GameCells may accept stacks.");}
     }
 
-    fn top(&self) -> Option<Rc<Card>> {
+    pub fn top(&self) -> Option<Rc<Card>> {
         match self {
             CardCell::GoalCell{top_card: Some(ref card)} => Some(card.clone()),
             CardCell::FreeCell{card: Some(ref card)} => Some(card.clone()),
@@ -151,30 +137,6 @@ impl CardCell {
     }
 }
 
-impl TerminalPrintable for CardCell {
-    fn print(&self) -> String {
-        match self {
-            CardCell::JokerCell{has_joker: true} => String::from("J"),
-            CardCell::JokerCell{has_joker: false} => String::from("-"),
-            CardCell::FreeCell{card: None} => String::from("-"),
-            CardCell::FreeCell{card: Some(ref card)} => card.print(),
-            CardCell::GoalCell{top_card: None} => String::from("-"),
-            CardCell::GoalCell{top_card: Some(ref top_card)} => top_card.print(),
-            CardCell::GameCell{card_stack} if card_stack.len() == 0 => String::from("-"),
-            CardCell::GameCell{card_stack} => {
-                let mut builder = String::new();
-                for card in card_stack.iter() {
-                    builder.push_str(&card.print());
-                    builder.push_str("\n");
-                }
-                builder.pop();  // remove trailing "\n"
-                builder
-            }
-        }
-    }
-}
-
-
 #[derive(Clone)]
 pub struct Board {
     joker_cell: Rc<CardCell>,
@@ -184,6 +146,11 @@ pub struct Board {
 }
 
 impl Board {
+    pub fn joker_cell(&self) -> &Rc<CardCell> {&self.joker_cell}
+    pub fn free_cells(&self) -> &[Rc<CardCell>; 3] {&self.free_cells}
+    pub fn goal_cells(&self) -> &[Rc<CardCell>; 3] {&self.goal_cells}
+    pub fn game_cells(&self) -> &[Rc<CardCell>; 8] {&self.game_cells}
+
     pub fn deal() -> Board {
         let mut deck = create_deck();
         thread_rng().shuffle(&mut deck);
@@ -357,56 +324,6 @@ impl Board {
     }
 }
 
-impl TerminalPrintable for Board {
-    fn print(&self) -> String {
-        let mut s = String::new();
-        for cell in self.free_cells.iter() {
-            s.push_str(&cell.print());
-        }
-        s.push_str("  ");
-        s.push_str(&self.joker_cell.print());
-        s.push_str(" ");
-        for cell in self.goal_cells.iter() {
-            s.push_str(&cell.print());
-        }
-        s.push_str("\n");
-
-        let strings: Vec<_> = self.game_cells.iter().map(|cell| cell.print()).collect();
-        s.push_str(&join_vertical(strings));
-
-        return s;
-    }
-}
-
-fn join_vertical(strings: Vec<String>) -> String {
-    let mut result = String::new();
-    let columns: Vec<Vec<_>> = strings.iter().map(|str| str.split("\n").collect()).collect();
-    let length = columns.iter().map(|strs| strs.len()).max().expect("input must not be empty");
-
-    for y in 0..length {
-        // TODO: doesn't fit this util really, but it's certainly the easiest place to add it
-        result.push_str(" ");
-        for column in columns.iter() {
-            result.push_str(column.get(y).unwrap_or(&" "));
-        }
-        result.push_str("\n");
-    }
-
-    return result;
-}
-
-fn term_color(suit: Suit, text: String) -> String {
-    format!(
-        "\x1b[38;5;{}m{}\x1b[0m",
-        match suit {
-            Suit::Black => 0,
-            Suit::Green => 2,
-            Suit::Red => 1,
-        },
-        text,
-    )
-}
-
 fn create_deck() -> Vec<Rc<Card>> {
     let mut vec: Vec<Rc<Card>> = Vec::with_capacity(40);
     for suit in vec![Suit::Black, Suit::Green, Suit::Red] {
@@ -542,10 +459,10 @@ mod tests {
         let red_2 = add_game_card(&mut board, Card::NumberCard{suit: Suit::Red, rank: 2}, 3);
         let red_9 = add_game_card(&mut board, Card::NumberCard{suit: Suit::Red, rank: 9}, 3);
         let black_2 = add_game_card(&mut board, Card::NumberCard{suit: Suit::Black, rank: 2}, 3);
-        let black_1 = add_game_card(&mut board, Card::NumberCard{suit: Suit::Black, rank: 1}, 4);
+        add_game_card(&mut board, Card::NumberCard{suit: Suit::Black, rank: 1}, 4);
         let red_1 = add_game_card(&mut board, Card::NumberCard{suit: Suit::Red, rank: 1}, 4);
         let green_2 = add_game_card(&mut board, Card::NumberCard{suit: Suit::Green, rank: 2}, 4);
-        let green_1 = add_game_card(&mut board, Card::NumberCard{suit: Suit::Green, rank: 1}, 4);
+        add_game_card(&mut board, Card::NumberCard{suit: Suit::Green, rank: 1}, 4);
 
         let new_board = board.do_automoves();
 
@@ -585,7 +502,7 @@ mod tests {
         let black_1 = add_game_card(&mut board, Card::NumberCard{suit: Suit::Black, rank: 1}, 4);
         let green_3 = add_game_card(&mut board, Card::NumberCard{suit: Suit::Green, rank: 3}, 4);
         let green_2 = add_game_card(&mut board, Card::NumberCard{suit: Suit::Green, rank: 2}, 4);
-        let green_1 = add_game_card(&mut board, Card::NumberCard{suit: Suit::Green, rank: 1}, 4);
+        add_game_card(&mut board, Card::NumberCard{suit: Suit::Green, rank: 1}, 4);
 
         let new_board = board.do_automoves();
 

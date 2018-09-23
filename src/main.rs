@@ -1,9 +1,12 @@
+#[macro_use]
+extern crate indoc;
+
+mod game;
+mod display;
 mod board;
-use board::TerminalPrintable;
+mod util;
 
 fn main() {
-    let mut b = board::Board::deal();
-    println!("{}", b.print());
-    b = b.do_automoves();
-    println!("{}", b.print());
+    game::Game::print_controls();
+    game::Game::deal().play();
 }
