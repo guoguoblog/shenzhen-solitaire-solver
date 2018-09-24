@@ -247,7 +247,9 @@ impl Board {
     /// moved, eg a DragonCard to an empty cell or a stack of NumberCards to another stack of
     /// NumberCards. To move a stack of NumberCards to an empty game cell, see `move_n_cards`.
     ///
-    /// If this function is unable to accomodate a move or the move is illegal, None is returned.
+    /// If the requested move is illegal, InvalidMove is returned. If there exist more than one
+    /// ways to accomplish the requested move, AmbiguousMove is returned (and `move_n_cards` should
+    /// be called instead).
     pub fn move_stack(&self, source: &CardCellIndex, dest: &CardCellIndex) -> Result<Board, MoveStackError> {
         // We might need to special-case moving between game cells, for stacks of num cards.
         if let (
