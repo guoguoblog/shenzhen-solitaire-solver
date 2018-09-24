@@ -12,6 +12,14 @@ pub fn display_card(card: &Card) -> String {
 }
 
 
+pub fn display_highlighted_card(card: &Card) -> String {
+    match card {
+        &Card::NumberCard{suit, rank} => term_highlight(suit, rank.to_string()),
+        _ => panic!("Only NumberCards may be highlighted"),
+    }
+}
+
+
 pub fn display_cell(card_cell: &CardCell) -> String {
     match card_cell {
         CardCell::JokerCell{has_joker: true} => String::from("J"),
@@ -20,7 +28,7 @@ pub fn display_cell(card_cell: &CardCell) -> String {
         CardCell::FreeCell{card: Some(ref card)} => display_card(card),
         CardCell::GoalCell{top_card: None} => String::from("-"),
         CardCell::GoalCell{top_card: Some(ref top_card)} => display_card(top_card),
-        CardCell::GameCell{card_stack} if card_stack.len() == 0 => String::from("-"),
+        CardCell::GameCell{card_stack} if card_stack.is_empty() => String::from("-"),
         CardCell::GameCell{card_stack} => {
             let mut builder = String::new();
             for card in card_stack.iter() {
@@ -30,6 +38,39 @@ pub fn display_cell(card_cell: &CardCell) -> String {
             builder.pop();  // remove trailing "\n"
             builder
         }
+    }
+}
+
+pub fn display_highlighted_cell(card_cell: &CardCell, height: u8) -> String {
+    match card_cell {
+        CardCell::GameCell{card_stack} if !card_stack.is_empty() => {
+            let mut builder = String::new();
+            // if rust were a little more like python, this might look something like:
+
+            // let mut iter = card_stack.iter();
+            // for card in iter.take(5) {
+            //     builder.push(display_card(card));
+            // }
+            // for card in iter {
+            //     builder.push(display_highlighted_card(card));
+            // }
+
+            // As-is, I can't figure out how to get rust to consume an iterator twice.
+            // ᖍ(シ)ᖌ
+            let pivot = card_stack.len() - height as usize;
+
+            for card in &card_stack[..pivot] {
+                builder.push_str(&display_card(card));
+                builder.push_str("\n");
+            }
+            for card in &card_stack[pivot..] {
+                builder.push_str(&display_highlighted_card(card));
+                builder.push_str("\n");
+            }
+            builder.pop();  // remove trailing "\n"
+            builder
+        }
+        _ => panic!("may only be called on a GameCell with cards."),
     }
 }
 
@@ -68,3 +109,14 @@ fn term_color(suit: Suit, text: String) -> String {
     )
 }
 
+fn term_highlight(suit: Suit, text: String) -> String {
+    format!(
+        "\x1b[48;5;{}m{}\x1b[0m",
+        match suit {
+            Suit::Black => 0,
+            Suit::Green => 2,
+            Suit::Red => 1,
+        },
+        text,
+    )
+}

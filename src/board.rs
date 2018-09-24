@@ -160,6 +160,11 @@ pub enum CardCellIndex {
     GameCellIndex(usize),
 }
 
+pub enum MoveStackError {
+    AmbiguousMove(u8),
+    InvalidMove,
+}
+
 #[derive(Clone)]
 pub struct Board {
     joker_cell: Rc<CardCell>,
@@ -226,21 +231,14 @@ impl Board {
             Card::NumberCard{rank, ..} => rank,
             _ => return None,
         };
-        let stack = self.game_cells[source].iter_stack();
-        let top_source_rank = match *(*stack.last()?) {
+        let top_source_rank = match *self.game_cells[source].top()? {
             Card::NumberCard{rank, ..} => rank,
             _ => return None,
         };
         let cards_to_grab = top_dest_rank.saturating_sub(top_source_rank) as usize;
-        if 0 >= cards_to_grab || cards_to_grab > stack.len() {
-            return None;
-        }
+
         // Now that we've decided how many cards to move, let's move em!
-        let mut board = self.clone();
-        board.game_cells[source] = Rc::new(board.game_cells[source].pop_n(cards_to_grab));
-        let substack = &stack[stack.len() - cards_to_grab..];
-        board.game_cells[dest] = Rc::new(board.game_cells[dest].accept_stack(substack)?);
-        Some(board)
+        self.move_n_cards(source, dest, cards_to_grab)
     }
 
     /// Move a stack from one card cell to another, and return the resulting board.
@@ -250,7 +248,7 @@ impl Board {
     /// NumberCards. To move a stack of NumberCards to an empty game cell, see `move_n_cards`.
     ///
     /// If this function is unable to accomodate a move or the move is illegal, None is returned.
-    pub fn move_stack(&self, source: &CardCellIndex, dest: &CardCellIndex) -> Option<Board> {
+    pub fn move_stack(&self, source: &CardCellIndex, dest: &CardCellIndex) -> Result<Board, MoveStackError> {
         // We might need to special-case moving between game cells, for stacks of num cards.
         if let (
                     &CardCellIndex::GameCellIndex(source_idx),
@@ -259,12 +257,16 @@ impl Board {
             // If there's already something in the destination, better let move_number_card_stack
             // handle it (because only NumberCards can move to an occupied dest).
             if self.game_cells[dest_idx].top().is_some() {
-                return self.move_number_card_stack(source_idx, dest_idx);
+                return match self.move_number_card_stack(source_idx, dest_idx) {
+                    Some(board) => Ok(board),
+                    None => Err(MoveStackError::InvalidMove),
+                };
             }
             // If our "stack" of NumberCards is one deep we can just move that card.
             // Otherwise we need to handle this in `move_n_cards`
-            if self.game_cells[source_idx].iter_stack().len() > 1 {
-                return None
+            let height = self.game_cells[source_idx].iter_stack().len();
+            if height > 1 {
+                return Err(MoveStackError::AmbiguousMove(height as u8));
             }
         }
 
@@ -273,12 +275,23 @@ impl Board {
         // that we don't want to mutably borrow the same cell twice.
         let source_cell = self.get_cell(source);
         let dest_cell = self.get_cell(dest);
-        let new_dest = dest_cell.accept(&source_cell.top()?)?;
+
+        // Trying to move no card
+        let source_card = &match source_cell.top() {
+            Some(card) => card,
+            None => return Err(MoveStackError::InvalidMove),
+        };
+
+        // Card move is invalid
+        let new_dest = match dest_cell.accept(source_card) {
+            Some(cell) => cell,
+            None => return Err(MoveStackError::InvalidMove),
+        };
 
         let mut board = self.clone();
         board.replace_cell(dest, new_dest);
         board.replace_cell(source, source_cell.pop());
-        Some(board)
+        Ok(board)
     }
 
     fn replace_cell(&mut self, index: &CardCellIndex, new_cell: CardCell) {
@@ -299,9 +312,18 @@ impl Board {
     }
 
     // GameCell NumCard | GameCell None
-    // pub fn move_n_cards(&self, source: usize, dest: usize, n: usize) -> Option<Board> {
+    pub fn move_n_cards(&self, source: usize, dest: usize, n: usize) -> Option<Board> {
+        let stack = self.game_cells[source].iter_stack();
+        if 0 >= n || n > stack.len() {
+            return None;
+        }
 
-    // }
+        let mut board = self.clone();
+        board.game_cells[source] = Rc::new(board.game_cells[source].pop_n(n));
+        let substack = &stack[stack.len() - n..];
+        board.game_cells[dest] = Rc::new(board.game_cells[dest].accept_stack(substack)?);
+        Some(board)
+    }
 
     /// Helper function to `stack_dragons`: remove all exposed dragons of the given suit from
     /// the board. Returns true if all four dragons are removed.
@@ -333,7 +355,6 @@ impl Board {
     /// If not all dragons are exposed or no free cell is open, returns None instead.
     pub fn stack_dragons(&self, suit: Suit) -> Option<Board> {
         // TODO: this function would love some tests.
-        // TODO: learn how to write tests in rust
         let mut board = self.clone();
         if !board.remove_dragons(suit) {
             return None
@@ -502,6 +523,16 @@ mod tests {
         }
     }
 
+    fn assert_is_invalid_move<T>(result: &Result<T, MoveStackError>) {
+        match result {
+            Err(MoveStackError::InvalidMove) => (),
+            Err(MoveStackError::AmbiguousMove{..}) =>
+                panic!("Expected InvalidMove, but found AmbiguousMove"),
+            Ok(_) =>
+                panic!("Expected InvalidMove, but move was valid"),
+        }
+    }
+
     #[test]
     /// Ensure a joker on the game board is automoved to the goal.
     fn automove_jokers() {
@@ -631,8 +662,8 @@ mod tests {
             &CardCellIndex::GameCellIndex(0),
             &CardCellIndex::GameCellIndex(1),
         ) {
-            Some(new_board) => new_board,
-            None => panic!("did not move stack"),
+            Ok(new_board) => new_board,
+            Err(_) => panic!("did not move stack"),
         };
         assert_eq!(get_card_stack_vec(&new_board, 0).len(), 1);
         assert_vec_rc_ptr_eq(
@@ -648,10 +679,10 @@ mod tests {
         add_game_card(&mut board, Card::NumberCard{suit: Suit::Green, rank: 6}, 0);
         add_game_card(&mut board, Card::NumberCard{suit: Suit::Red, rank: 9}, 1);
 
-        assert!(board.move_stack(
+        assert_is_invalid_move(&board.move_stack(
             &CardCellIndex::GameCellIndex(1),
             &CardCellIndex::GameCellIndex(0),
-        ).is_none());
+        ));
     }
 
     #[test]
@@ -661,10 +692,10 @@ mod tests {
         add_game_card(&mut board, Card::NumberCard{suit: Suit::Red, rank: 6}, 0);
         add_game_card(&mut board, Card::NumberCard{suit: Suit::Red, rank: 7}, 1);
 
-        assert!(board.move_stack(
+        assert_is_invalid_move(&board.move_stack(
             &CardCellIndex::GameCellIndex(0),
             &CardCellIndex::GameCellIndex(1),
-        ).is_none());
+        ));
     }
 
     #[test]
@@ -673,10 +704,10 @@ mod tests {
         let mut board = empty_board();
         set_free_card(&mut board, Card::DragonStack, 0);
 
-        assert!(board.move_stack(
+        assert_is_invalid_move(&board.move_stack(
             &CardCellIndex::FreeCellIndex(0),
             &CardCellIndex::GameCellIndex(0),
-        ).is_none());
+        ));
     }
 
     #[test]
@@ -690,8 +721,8 @@ mod tests {
             &CardCellIndex::FreeCellIndex(0),
             &CardCellIndex::GameCellIndex(0),
         ) {
-            Some(new_board) => new_board,
-            None => panic!("did not move stack"),
+            Ok(new_board) => new_board,
+            Err(_) => panic!("did not move stack"),
         };
 
         assert_vec_rc_ptr_eq(

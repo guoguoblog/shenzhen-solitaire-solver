@@ -2,8 +2,8 @@ extern crate getch;
 
 use std::rc::Rc;
 
-use ::board::{Board, CardCell, Card, CardCellIndex};
-use ::display::{display_cell};
+use ::board::{Board, CardCell, Card, CardCellIndex, MoveStackError};
+use ::display::{display_cell, display_highlighted_cell};
 use ::util;
 
 /// Formats a string literal as a "selected" marker in the game ui.
@@ -15,9 +15,11 @@ macro_rules! selector_color {
     }
 }
 
+#[derive(Debug)]
 enum GameMode {
     SelectSource,
     SelectDestination{cursor: u8},
+    ChooseStackHeight{cursor: u8, height: u8, max_height: u8},
 }
 
 /// Human-playable board representation.
@@ -68,7 +70,13 @@ impl Game {
         }
         s.push_str("\n");
 
-        let mut strings: Vec<_> = self.board.game_cells().iter().map(|cell| display_cell(cell)).collect();
+        let mut strings: Vec<_> = self.board.game_cells().iter().enumerate().map(|(i, cell)|
+            match self.mode {
+                GameMode::ChooseStackHeight{height, cursor, ..} if cursor as usize - 7 == i => {
+                    display_highlighted_cell(cell, height)},
+                _ => display_cell(cell),
+            }
+        ).collect();
         match self.cursor {
             7...14 => strings[self.cursor as usize - 7].push_str("\n^"),
             _ => (),
@@ -128,13 +136,30 @@ impl Game {
                     &Game::cursor_to_cci(cursor),
                     &Game::cursor_to_cci(self.cursor),
                 );
-                match new_board {
-                    Some(board) => {
+                self.mode = match new_board {
+                    Ok(board) => {
                         self.board = board.do_automoves();
-                    }
-                    None => (),
+                        GameMode::SelectSource
+                    },
+                    Err(MoveStackError::InvalidMove) => GameMode::SelectSource,
+                    Err(MoveStackError::AmbiguousMove(max_height)) =>
+                        GameMode::ChooseStackHeight{
+                            cursor: cursor,
+                            height: max_height,
+                            max_height: max_height,
+                        },
                 }
-                self.mode = GameMode::SelectSource;
+            },
+            GameMode::ChooseStackHeight{cursor, height, ..} => {
+                let new_board = self.board.move_n_cards(
+                    cursor as usize - 7,
+                    self.cursor as usize - 7,
+                    height as usize,
+                );
+                if let Some(board) = new_board {
+                    self.board = board.do_automoves();
+                }
+                self.mode = GameMode::SelectSource
             }
         }
     }
@@ -166,37 +191,67 @@ impl Game {
     }
 
     fn move_cursor_up(&mut self) {
-        self.cursor = match self.cursor {
-            7 => 2,
-            8...10 => 3,
-            11...13 => 4,
-            14 => 5,
-            _ => return,
-        };
+        match self.mode {
+            GameMode::ChooseStackHeight{height, cursor, max_height} =>
+                if height < max_height {
+                    self.mode = GameMode::ChooseStackHeight{
+                        height: height + 1,
+                        cursor: cursor,
+                        max_height: max_height,
+                    }
+                },
+            GameMode::SelectSource | GameMode::SelectDestination{..} =>
+                self.cursor = match self.cursor {
+                    7 => 2,
+                    8...10 => 3,
+                    11...13 => 4,
+                    14 => 5,
+                    _ => return,
+                },
+        }
     }
 
     fn move_cursor_left(&mut self) {
-        self.cursor = match self.cursor {
-            1 | 7 => return,
-            _ => self.cursor - 1
-        };
+        match self.mode {
+            GameMode::SelectSource | GameMode::SelectDestination{..} =>
+                self.cursor = match self.cursor {
+                    1 | 7 => return,
+                    _ => self.cursor - 1
+                },
+            GameMode::ChooseStackHeight{..} => (),
+        }
     }
 
     fn move_cursor_right(&mut self) {
-        self.cursor = match self.cursor {
-            6 | 14 => return,
-            _ => self.cursor + 1
-        };
+        match self.mode {
+            GameMode::SelectSource | GameMode::SelectDestination{..} =>
+                self.cursor = match self.cursor {
+                    6 | 14 => return,
+                    _ => self.cursor + 1
+                },
+            GameMode::ChooseStackHeight{..} => (),
+        }
     }
 
     fn move_cursor_down(&mut self) {
-        self.cursor = match self.cursor {
-            1 => 7,
-            2 | 3 => self.cursor + 5,
-            4 | 5 => self.cursor + 9,
-            6 => 14,
-            _ => return,
-        };
+        match self.mode {
+            GameMode::ChooseStackHeight{height, cursor, max_height} =>
+                if height > 1 {
+                    self.mode = GameMode::ChooseStackHeight{
+                        height: height - 1,
+                        cursor: cursor,
+                        max_height: max_height,
+                    }
+                },
+            GameMode::SelectSource | GameMode::SelectDestination{..} =>
+                self.cursor = match self.cursor {
+                    1 => 7,
+                    2 | 3 => self.cursor + 5,
+                    4 | 5 => self.cursor + 9,
+                    6 => 14,
+                    _ => return,
+                },
+        }
     }
 
     pub fn print_controls() {
