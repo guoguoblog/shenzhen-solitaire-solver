@@ -3,17 +3,8 @@ extern crate getch;
 use std::rc::Rc;
 
 use ::board::{Board, CardCell, Card, CardCellIndex, MoveStackError};
-use ::display::{display_cell, display_highlighted_cell};
+use ::display::{display_cell, display_highlighted_cell, dim, no_dim};
 use ::util;
-
-/// Formats a string literal as a "selected" marker in the game ui.
-///
-/// In practice, this turns the string yellow.
-macro_rules! selector_color {
-    ($text: tt) => {
-        concat!("\x1b[38;5;11m", $text, "\x1b[0m")
-    }
-}
 
 #[derive(Debug)]
 enum GameMode {
@@ -51,10 +42,14 @@ impl Game {
             _ => (),
         }
 
+        let should_dim;
         match self.mode {
-            GameMode::SelectDestination{cursor: cursor @ 1...3} =>
-                top_row[cursor as usize - 1] = selector_color!("v"),
-            _ => (),
+            GameMode::SelectDestination{cursor: cursor @ 1...3} => {
+                top_row[cursor as usize - 1] = selector_color!("v");
+                should_dim = false;
+            },
+            GameMode::ChooseStackHeight{..} => should_dim = true,
+            _ => should_dim = false,
         }
         s.push_str(&top_row.join(""));
         s.push_str("\n");
@@ -78,15 +73,23 @@ impl Game {
             }
         ).collect();
         match self.cursor {
-            7...14 => strings[self.cursor as usize - 7].push_str("\n^"),
+            7...14 => strings[self.cursor as usize - 7].push_str(
+                &format!("\n{}", no_dim("^".to_string(), should_dim))
+            ),
             _ => (),
         }
         match self.mode {
-            GameMode::SelectDestination{cursor: cursor @ 7...14} =>
-                strings[cursor as usize - 7].push_str(concat!("\n", selector_color!("^"))),
+            GameMode::SelectDestination{cursor: cursor @ 7...14} |
+            GameMode::ChooseStackHeight{cursor: cursor @ 7...14, ..} =>
+                strings[cursor as usize - 7].push_str(
+                    &format!("\n{}", no_dim(selector_color!("^").to_string(), should_dim))
+                ),
             _ => (),
         }
         s.push_str(&util::join_vertical(strings));
+        if should_dim {
+            s = dim(s);
+        }
         println!("{}", s);
     }
 

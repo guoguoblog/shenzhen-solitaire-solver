@@ -1,8 +1,9 @@
 #[macro_use]
 extern crate indoc;
 
-mod game;
+#[macro_use]
 mod display;
+mod game;
 mod board;
 mod util;
 

@@ -99,11 +99,11 @@ fn display_board(board: &Board) -> String {
 
 fn term_color(suit: Suit, text: String) -> String {
     format!(
-        "\x1b[38;5;{}m{}\x1b[0m",
+        "\x1b[{}m{}\x1b[39m",
         match suit {
-            Suit::Black => 0,
-            Suit::Green => 2,
-            Suit::Red => 1,
+            Suit::Black => 90,
+            Suit::Green => 32,
+            Suit::Red => 31,
         },
         text,
     )
@@ -111,12 +111,31 @@ fn term_color(suit: Suit, text: String) -> String {
 
 fn term_highlight(suit: Suit, text: String) -> String {
     format!(
-        "\x1b[48;5;{}m{}\x1b[0m",
+        "\x1b[22m\x1b[{}m{}\x1b[39m\x1b[2m",
         match suit {
-            Suit::Black => 0,
-            Suit::Green => 2,
-            Suit::Red => 1,
+            Suit::Black => 90,
+            Suit::Green => 32,
+            Suit::Red => 31,
         },
         text,
     )
+}
+
+
+pub fn dim(text: String) -> String {
+    format!("\x1b[2m{}\x1b[22m", text)
+}
+
+pub fn no_dim(text: String, should_dim: bool) -> String {
+    if should_dim {format!("\x1b[22m{}\x1b[2m", text)}
+    else {text}
+}
+
+/// Formats a string literal as a "selected" marker in the game ui.
+///
+/// In practice, this turns the string yellow.
+macro_rules! selector_color {
+    ($text: tt) => {
+        concat!("\x1b[38;5;11m", $text, "\x1b[0m")
+    }
 }
