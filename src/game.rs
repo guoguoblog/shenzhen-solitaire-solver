@@ -113,6 +113,8 @@ impl Game {
                 'a' | 'A' => self.move_cursor_left(),
                 's' | 'S' => self.move_cursor_down(),
                 'd' | 'D' => self.move_cursor_right(),
+                'c' | 'C' => self.cancel(),
+                num @ '1' ... '8' => self.jump_to(num as u8 - '0' as u8),
                 ' ' => self.select(),
                 _ => (), // println!("{}", chr),
             }
@@ -164,6 +166,25 @@ impl Game {
                 }
                 self.mode = GameMode::SelectSource
             }
+        }
+    }
+
+    fn cancel(&mut self) {
+        self.mode = match self.mode {
+            GameMode::SelectDestination{..} | GameMode::SelectSource => GameMode::SelectSource,
+            GameMode::ChooseStackHeight{cursor, ..} => GameMode::SelectDestination{cursor},
+        }
+    }
+
+    /// Immediately move the cursor to the given value in the current row.
+    ///
+    /// `num` MUST be in the range 1...8
+    fn jump_to(&mut self, num: u8) {
+        if self.cursor >= 7 {
+            self.cursor = num + 6;
+        }
+        else if num <= 6 {
+            self.cursor = num;
         }
     }
 
@@ -263,6 +284,8 @@ impl Game {
             - WASD to move the cursor (until I can figure out how to support the arrow keys)
             - Space to select or place a card
             - G to group the selected dragons
+            - C to cancel a selection
+            - 1-8 to jump within the current row
             - ? to show these controls
         "));
     }
