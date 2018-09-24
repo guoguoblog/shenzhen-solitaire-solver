@@ -1,5 +1,6 @@
 extern crate getch;
 
+use std::cmp::max;
 use std::rc::Rc;
 
 use ::board::{Board, CardCell, Card, CardCellIndex, MoveStackError};
@@ -11,6 +12,17 @@ enum GameMode {
     SelectSource,
     SelectDestination{cursor: u8},
     ChooseStackHeight{cursor: u8, height: u8, max_height: u8},
+}
+
+/// Get the display height of the specified GameCell.
+///
+/// This is almost, but not quite, the number of cards in the cell. When the cell is empty this
+/// is one, for the dash we draw to denote an empty cell.
+fn game_cell_height(game_cell: &CardCell) -> u8 {
+    match game_cell {
+        CardCell::GameCell{card_stack} => max(card_stack.len() as u8, 1),
+        _ => panic!("`height()` is only defined for GameCells"),
+    }
 }
 
 /// Human-playable board representation.
@@ -72,25 +84,52 @@ impl Game {
                 _ => display_cell(cell),
             }
         ).collect();
-        match self.cursor {
-            7...14 => strings[self.cursor as usize - 7].push_str(
-                &format!("\n{}", no_dim("^".to_string(), should_dim))
-            ),
-            _ => (),
-        }
-        match self.mode {
+        let cursor_collision = match self.mode {
             GameMode::SelectDestination{cursor: cursor @ 7...14} |
-            GameMode::ChooseStackHeight{cursor: cursor @ 7...14, ..} =>
+            GameMode::ChooseStackHeight{cursor: cursor @ 7...14, ..} => {
                 strings[cursor as usize - 7].push_str(
                     &format!("\n{}", no_dim(selector_color!("^").to_string(), should_dim))
+                );
+                cursor == self.cursor
+            },
+            _ => false,
+        };
+        if !cursor_collision {
+            match self.cursor {
+                7...14 => strings[self.cursor as usize - 7].push_str(
+                    &format!("\n{}", no_dim("^".to_string(), should_dim))
                 ),
-            _ => (),
+                _ => (),
+            }
         }
         s.push_str(&util::join_vertical(strings));
+        if self.should_buffer_height() {
+            s.push_str("\n");
+        }
         if should_dim {
             s = dim(s);
         }
         println!("{}", s);
+    }
+
+    /// Returns true if we should print an extra newline at the end of the board display.
+    ///
+    /// As we move the cursor around the board we affect the height of the display, specifically
+    /// as the cursor passes through the tallest columns. We compensate for this by printing a
+    /// newline when no cursor is on one of the tallest columns.
+    fn should_buffer_height(&self) -> bool {
+        let game_cells = self.board.game_cells();
+        let max_cell_height = game_cells.iter().map(|col| game_cell_height(&*col)).max().expect("it's an array");
+
+        if self.cursor >= 7 && game_cell_height(&*game_cells[self.cursor as usize - 7]) == max_cell_height {
+            return false;
+        }
+        match self.mode {
+            GameMode::ChooseStackHeight{cursor, ..} | GameMode::SelectDestination{cursor}
+            if cursor >= 7 && game_cell_height(&*game_cells[cursor as usize - 7]) == max_cell_height
+                => false,
+            _ => true,
+        }
     }
 
     pub fn play(&mut self) {
