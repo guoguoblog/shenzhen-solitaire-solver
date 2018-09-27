@@ -403,7 +403,7 @@ impl Board {
     }
 
     /// The maximum rank of number card that is safe to auto-move to the goal.
-    fn auto_safe_rank(&self) -> u8 {
+    pub fn auto_safe_rank(&self) -> u8 {
         self.goal_cells.iter().map(|cell| match cell.top() {
             Some(rc) => match *rc {
                 Card::NumberCard{rank, ..} => rank,

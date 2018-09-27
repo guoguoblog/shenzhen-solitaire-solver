@@ -1,4 +1,5 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::cmp::{Ordering, min};
+use std::collections::{HashMap, HashSet, VecDeque, BinaryHeap};
 use std::rc::Rc;
 
 // use ::display::display_board;
@@ -33,6 +34,52 @@ const DEST_SLOTS: &[CardCellIndex] = &[
     CardCellIndex::GameCellIndex(6),
     CardCellIndex::GameCellIndex(7),
 ];
+
+#[derive(Eq, PartialEq)]
+struct State {
+    score: u32,
+    board: Rc<Board>,
+}
+
+impl State {
+    fn new(board: Rc<Board>) -> State {
+        State {
+            score: board_heuristic(&*board),
+            board: board,
+        }
+    }
+}
+
+impl Ord for State {
+    fn cmp(&self, other: &State) -> Ordering {
+        self.score.cmp(&other.score)
+    }
+}
+
+impl PartialOrd for State {
+    fn partial_cmp(&self, other: &State) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+fn board_heuristic(board: &Board) -> u32 {
+    let safe_rank = board.auto_safe_rank();
+    let goal_score: u32 = board.goal_cells().iter().map(|cell| match cell.top() {
+        Some(rc) => match *rc {
+            Card::NumberCard{rank, ..} => min(rank, safe_rank) as u32,
+            _ => unreachable!(),  // no other card type should be in a goal cell
+        },
+        None => 0,
+    }).sum();
+    let dragon_score: u32 = board.free_cells().iter().map(|cell| match cell.top() {
+        Some(rc) => match *rc {
+            Card::DragonStack => 9,
+            _ => 0,
+        },
+        None => 0,
+    }).sum();
+    goal_score + dragon_score
+}
 
 fn get_valid_dests(board: &Board) -> Vec<&CardCellIndex> {
     let mut seen_free_cell = false;
@@ -129,13 +176,13 @@ pub fn solve(board: &Board) -> Option<Vec<Board>> {
 
 fn solve_rc(board: &Board) -> Option<VecDeque<Rc<Board>>> {
     let board = Rc::new(board.clone());
-    let mut queue = VecDeque::new();
-    queue.push_back(board.clone());
+    let mut open = BinaryHeap::new();
+    open.push(State::new(board.clone()));
     let mut path: HashMap<Rc<Board>, Rc<Board>> = HashMap::new();
     let mut seen = HashSet::new();
     seen.insert(board);
 
-    while let Some(board) = queue.pop_front() {
+    while let Some(State{board, ..}) = open.pop() {
         if board.is_solved() {
             return Some(reconstruct_path(path, board));
         }
@@ -147,7 +194,7 @@ fn solve_rc(board: &Board) -> Option<VecDeque<Rc<Board>>> {
                 continue;
             }
             path.insert(next_board.clone(), board.clone());
-            queue.push_back(next_board);
+            open.push(State::new(next_board));
         }
     }
 
