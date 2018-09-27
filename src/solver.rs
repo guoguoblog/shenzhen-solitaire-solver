@@ -1,4 +1,3 @@
-use std::mem;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::rc::Rc;
 
@@ -122,6 +121,13 @@ pub fn next_states(board: &Board) -> Vec<Board> {
 
 // BFSly search
 pub fn solve(board: &Board) -> Option<Vec<Board>> {
+    Some(solve_rc(board)?.into_iter().map(|board|
+        Rc::try_unwrap(board).unwrap_or_else(|_| panic!("Didn't drop all the refs :(((("))
+    ).collect())
+}
+
+
+fn solve_rc(board: &Board) -> Option<VecDeque<Rc<Board>>> {
     let board = Rc::new(board.clone());
     let mut queue = VecDeque::new();
     queue.push_back(board.clone());
@@ -131,8 +137,6 @@ pub fn solve(board: &Board) -> Option<Vec<Board>> {
 
     while let Some(board) = queue.pop_front() {
         if board.is_solved() {
-            mem::drop(queue);
-            mem::drop(seen);
             return Some(reconstruct_path(path, board));
         }
 
@@ -151,7 +155,7 @@ pub fn solve(board: &Board) -> Option<Vec<Board>> {
 }
 
 
-fn reconstruct_path(mut path: HashMap<Rc<Board>, Rc<Board>>, board: Rc<Board>) -> Vec<Board> {
+fn reconstruct_path(mut path: HashMap<Rc<Board>, Rc<Board>>, board: Rc<Board>) -> VecDeque<Rc<Board>> {
     let mut result: VecDeque<Rc<Board>> = VecDeque::new();
     result.push_front(board.clone());
     // Would be great to `while let Some(board) = path.remove(&board)` here,
@@ -165,9 +169,5 @@ fn reconstruct_path(mut path: HashMap<Rc<Board>, Rc<Board>>, board: Rc<Board>) -
         }
         result.push_front(board.clone());
     }
-    mem::drop(board);
-    mem::drop(path);
-    result.into_iter().map(|board|
-        Rc::try_unwrap(board).unwrap_or_else(|_| panic!("Didn't drop all the refs :(((("))
-    ).collect()
+    result
 }
