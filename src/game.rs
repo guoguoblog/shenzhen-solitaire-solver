@@ -196,8 +196,8 @@ impl Game {
             },
             GameMode::ChooseStackHeight{cursor, height, ..} => {
                 let new_board = self.board.move_n_cards(
-                    cursor as usize - 7,
-                    self.cursor as usize - 7,
+                    &Game::cursor_to_cci(cursor),
+                    &Game::cursor_to_cci(self.cursor),
                     height as usize,
                 );
                 if let Some(board) = new_board {

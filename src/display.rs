@@ -78,7 +78,7 @@ pub fn clear() {
     print!("{}[2J", 27 as char);
 }
 
-fn display_board(board: &Board) -> String {
+pub fn display_board(board: &Board) -> String {
     let mut s = String::new();
     for cell in board.free_cells().iter() {
         s.push_str(&display_cell(cell));

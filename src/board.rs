@@ -1,17 +1,21 @@
+extern crate itertools;
 extern crate rand;
-use self::rand::{thread_rng, Rng};
+use std::hash::{Hash, Hasher};
 use std::rc::Rc;
+
+use self::itertools::sorted;
+use self::rand::{thread_rng, Rng};
 
 #[derive(Copy, Clone)]
 #[derive(Debug)]
-#[derive(PartialEq)]
+#[derive(Eq, PartialEq, Hash, PartialOrd, Ord)]
 pub enum Suit {
     Black,
     Green,
     Red,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq, Hash, PartialOrd, Ord)]
 pub enum Card {
     JokerCard,
     DragonCard{suit: Suit},
@@ -33,6 +37,7 @@ impl Card {
     }
 }
 
+#[derive(Eq, PartialEq, Hash, PartialOrd, Ord)]
 pub enum CardCell {
     JokerCell{has_joker: bool},
     FreeCell{card: Option<Rc<Card>>},
@@ -154,6 +159,7 @@ impl CardCell {
 }
 
 /// Enum to refer to the different card cells on a board.
+#[derive(Eq, PartialEq)]
 pub enum CardCellIndex {
     FreeCellIndex(usize),
     GoalCellIndex(usize),
@@ -165,7 +171,7 @@ pub enum MoveStackError {
     InvalidMove,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Eq)]
 pub struct Board {
     joker_cell: Rc<CardCell>,
     free_cells: [Rc<CardCell>; 3],
@@ -238,7 +244,7 @@ impl Board {
         let cards_to_grab = top_dest_rank.saturating_sub(top_source_rank) as usize;
 
         // Now that we've decided how many cards to move, let's move em!
-        self.move_n_cards(source, dest, cards_to_grab)
+        self.move_n_cards_by_idx(source, dest, cards_to_grab)
     }
 
     /// Move a stack from one card cell to another, and return the resulting board.
@@ -251,6 +257,11 @@ impl Board {
     /// ways to accomplish the requested move, AmbiguousMove is returned (and `move_n_cards` should
     /// be called instead).
     pub fn move_stack(&self, source: &CardCellIndex, dest: &CardCellIndex) -> Result<Board, MoveStackError> {
+        // Can't move in-place.
+        if source == dest {
+            return Err(MoveStackError::InvalidMove);
+        }
+
         // We might need to special-case moving between game cells, for stacks of num cards.
         if let (
                     &CardCellIndex::GameCellIndex(source_idx),
@@ -305,7 +316,7 @@ impl Board {
         }
     }
 
-    fn get_cell(&self, index: &CardCellIndex) -> &Rc<CardCell> {
+    pub fn get_cell(&self, index: &CardCellIndex) -> &Rc<CardCell> {
         match index {
             &CardCellIndex::FreeCellIndex(n) => &self.free_cells[n],
             &CardCellIndex::GoalCellIndex(n) => &self.goal_cells[n],
@@ -313,8 +324,15 @@ impl Board {
         }
     }
 
-    // GameCell NumCard | GameCell None
-    pub fn move_n_cards(&self, source: usize, dest: usize, n: usize) -> Option<Board> {
+    pub fn move_n_cards(&self, source: &CardCellIndex, dest: &CardCellIndex, n: usize) -> Option<Board> {
+        match (source, dest) {
+            (&CardCellIndex::GameCellIndex(source_idx), &CardCellIndex::GameCellIndex(dest_idx)) =>
+                self.move_n_cards_by_idx(source_idx, dest_idx, n),
+            _ => panic!("`move_n_cards` may only act on game cells"),
+        }
+    }
+
+    fn move_n_cards_by_idx(&self, source: usize, dest: usize, n: usize) -> Option<Board> {
         let stack = self.game_cells[source].iter_stack();
         if 0 >= n || n > stack.len() {
             return None;
@@ -425,6 +443,26 @@ impl Board {
             safe_rank = board.auto_safe_rank();
         }
         board
+    }
+}
+
+impl PartialEq for Board {
+    fn eq(&self, rhs: &Board) -> bool {
+        self.joker_cell == rhs.joker_cell &&
+        sorted(self.game_cells.iter()) == sorted(rhs.game_cells.iter()) &&
+        sorted(self.free_cells.iter()) == sorted(rhs.free_cells.iter()) &&
+        sorted(self.goal_cells.iter()) == sorted(rhs.goal_cells.iter())
+    }
+}
+
+impl Hash for Board {
+    fn hash<H>(&self, hasher: &mut H) where
+        H: Hasher,
+    {
+        self.joker_cell.hash(hasher);
+        sorted(self.game_cells.iter()).hash(hasher);
+        sorted(self.free_cells.iter()).hash(hasher);
+        sorted(self.goal_cells.iter()).hash(hasher);
     }
 }
 
