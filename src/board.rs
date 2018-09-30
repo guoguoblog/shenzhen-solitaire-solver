@@ -24,8 +24,8 @@ pub enum Card {
     DragonStack,
 }
 impl Card {
-    fn can_hold(&self, card: &Rc<Card>) -> bool {
-        match (&*self, &**card) {
+    fn can_hold(&self, card: &Card) -> bool {
+        match (self, card) {
             (
                 &Card::NumberCard{suit: self_suit, rank: self_rank},
                 &Card::NumberCard{suit: card_suit, rank: card_rank},
@@ -86,8 +86,8 @@ impl CardCell {
     fn accept_stack(&self, cards: &[Rc<Card>]) -> Option<Self> {
         if let CardCell::GameCell{card_stack} = self {
             if let Some(rc_card) = card_stack.last() {
-                let card = &cards.first().expect("cards must be nonempty");
-                if !rc_card.can_hold(card) {
+                let card = cards.first().expect("cards must be nonempty");
+                if !rc_card.can_hold(&**card) {
                     return None;
                 }
             }
@@ -142,7 +142,7 @@ impl CardCell {
                     return result;
                 }
                 for rc_card in iter {
-                    if rc_card.can_hold(&last_card) {
+                    if rc_card.can_hold(&*last_card) {
                         last_card = rc_card.clone();
                         result.push(last_card.clone());
                     }
