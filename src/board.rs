@@ -66,13 +66,7 @@ impl CardCell {
                     _ => None,
                 }
 
-            (CardCell::GameCell{card_stack}, _) =>
-                if card_stack.is_empty() {
-                    Some(CardCell::GameCell{card_stack: vec![card.clone()]})
-                }
-                else {
-                    self.accept_stack(&[card.clone()])
-                }
+            (CardCell::GameCell{..}, _) => self.accept_stack(&[card.clone()]),
 
             _ => None,
         }
@@ -787,4 +781,49 @@ mod tests {
             &vec![green_5, black_4],
         );
     }
+
+    #[test]
+    /// Ensure you can move a number card to an empty GameCell from a FreeCell
+    fn move_num_to_empty_via_free() {
+        let mut board = empty_board();
+        let black_4 = set_free_card(&mut board, Card::NumberCard{suit: Suit::Black, rank: 4}, 0);
+
+        let new_board = match board.move_stack(
+            &CardCellIndex::FreeCellIndex(0),
+            &CardCellIndex::GameCellIndex(0),
+        ) {
+            Ok(new_board) => new_board,
+            Err(_) => panic!("did not move stack"),
+        };
+
+        assert_vec_rc_ptr_eq(
+            &get_card_stack_vec(&new_board, 0),
+            &vec![black_4],
+        );
+    }
+
+    #[test]
+    /// Ensure you can move an unstacked number card to an empty GameCell from a GameCell
+    fn move_num_to_empty_via_game() {
+        let mut board = empty_board();
+        let black_8 = add_game_card(&mut board, Card::NumberCard{suit: Suit::Black, rank: 8}, 0);
+        let black_4 = add_game_card(&mut board, Card::NumberCard{suit: Suit::Black, rank: 4}, 0);
+
+        let new_board = match board.move_stack(
+            &CardCellIndex::GameCellIndex(0),
+            &CardCellIndex::GameCellIndex(1),
+        ) {
+            Ok(new_board) => new_board,
+            Err(_) => panic!("did not move stack"),
+        };
+        assert_vec_rc_ptr_eq(
+            &get_card_stack_vec(&new_board, 0),
+            &vec![black_8],
+        );
+        assert_vec_rc_ptr_eq(
+            &get_card_stack_vec(&new_board, 1),
+            &vec![black_4],
+        );
+    }
+
 }
