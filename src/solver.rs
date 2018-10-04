@@ -1,9 +1,10 @@
 use std::cmp::{Ordering, min};
 use std::collections::{HashMap, HashSet, VecDeque, BinaryHeap};
+use std::hash::Hash;
 use std::rc::Rc;
 
 // use ::display::display_board;
-use ::board::{Board, Card, CardCellIndex, MoveStackError, Suit};
+use ::board::{Board, Card, CardCellIndex, CardCell, MoveStackError, Suit};
 
 const SOURCE_SLOTS: &[CardCellIndex] = &[
     CardCellIndex::FreeCellIndex(0),
@@ -35,50 +36,85 @@ const DEST_SLOTS: &[CardCellIndex] = &[
     CardCellIndex::GameCellIndex(7),
 ];
 
+fn counter<T, I>(mut iter: I) -> HashMap<T, u32> where
+    T: Hash + Eq,
+    I: Iterator<Item=T>,
+{
+    let mut result = HashMap::new();
+    for elem in iter {
+        let c = result.entry(elem).or_insert(0);
+        *c += 1;
+    }
+    result
+}
+
 #[derive(Eq, PartialEq)]
-struct State {
-    score: u32,
+struct AStarState {
+    fscore: u32,
     board: Rc<Board>,
 }
 
-impl State {
-    fn new(board: Rc<Board>) -> State {
-        State {
-            score: board_heuristic(&*board),
-            board: board,
-        }
+impl Ord for AStarState {
+    fn cmp(&self, other: &AStarState) -> Ordering {
+        self.fscore.cmp(&other.fscore)
     }
 }
 
-impl Ord for State {
-    fn cmp(&self, other: &State) -> Ordering {
-        self.score.cmp(&other.score)
-    }
-}
-
-impl PartialOrd for State {
-    fn partial_cmp(&self, other: &State) -> Option<Ordering> {
+impl PartialOrd for AStarState {
+    fn partial_cmp(&self, other: &AStarState) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-fn board_heuristic(board: &Board) -> u32 {
-    let safe_rank = board.auto_safe_rank();
-    let goal_score: u32 = board.goal_cells().iter().map(|cell| match cell.top() {
+
+/// "hscore". An ~optimistic guess of how many moves it'll take to solve.
+///
+/// Considers automoves as moves, thus this heuristic is not
+/// technically admissable. However it should still prevent making
+/// unnecessary moves.
+fn estimated_moves_to_solve(board: &Board) -> u32 {
+    // Count how many cards are missing from the goal cells.
+    let ungoaled_numcards: u32 = board.goal_cells().iter().map(|goal_cell|
+        match goal_cell.top() {
+            Some(rc) => match *rc {
+                Card::NumberCard{rank, ..} => 9 - rank as u32,
+                _ => unreachable!(),  // no other card type should be in a goal cell
+            },
+            None => 9,
+        }
+    ).sum();
+
+    // Count how many dragon suits still need to be grouped.
+    let ungrouped_dragon_suits: u32 = board.free_cells().iter().map(|cell| match cell.top() {
         Some(rc) => match *rc {
-            Card::NumberCard{rank, ..} => min(rank, safe_rank) as u32,
-            _ => unreachable!(),  // no other card type should be in a goal cell
+            Card::DragonStack => 0,
+            _ => 1,
         },
-        None => 0,
+        None => 1,
     }).sum();
-    let dragon_score: u32 = board.free_cells().iter().map(|cell| match cell.top() {
-        Some(rc) => match *rc {
-            Card::DragonStack => 9,
-            _ => 0,
-        },
-        None => 0,
-    }).sum();
-    goal_score + dragon_score
+
+    // Count how many dragons are trapped under dragons of the same suit.
+    // These will require a move to separate em before they can be grouped.
+    // If we know all of our dragons are already grouped we skip this
+    // check entirely.
+    let trapped_dragons: u32 = if ungrouped_dragon_suits == 0 {0} else {
+        board.game_cells().iter().map(|game_cell| match &**game_cell {
+            &CardCell::GameCell{ref card_stack} => {
+                let rust_pls: u32 = counter(
+                    card_stack.iter().filter_map(|rc|
+                        match **rc {
+                            Card::DragonCard{suit} => Some(suit),
+                            _ => None,
+                        }
+                    )
+                ).values().map(|num| num - 1).sum();
+                rust_pls
+            },
+            _ => unreachable!(),  // should only be gamecells
+        }).sum()
+    };
+
+    ungoaled_numcards + trapped_dragons + ungrouped_dragon_suits
 }
 
 fn get_valid_dests(board: &Board) -> Vec<&CardCellIndex> {
@@ -166,41 +202,57 @@ pub fn next_states(board: &Board) -> Vec<Board> {
     states
 }
 
-// BFSly search
 pub fn solve(board: &Board) -> Option<Vec<Board>> {
     Some(solve_rc(board)?.into_iter().map(|board|
         Rc::try_unwrap(board).unwrap_or_else(|_| panic!("Didn't drop all the refs :(((("))
     ).collect())
 }
 
-
-fn solve_rc(board: &Board) -> Option<VecDeque<Rc<Board>>> {
+// A*ly search
+pub fn solve_rc(board: &Board) -> Option<VecDeque<Rc<Board>>> {
     let board = Rc::new(board.clone());
-    let mut open = BinaryHeap::new();
-    open.push(State::new(board.clone()));
+    let mut open_set = BinaryHeap::new();
+    open_set.push(AStarState{
+        fscore: estimated_moves_to_solve(&*board),
+        board: board.clone(),
+    });
     let mut path: HashMap<Rc<Board>, Rc<Board>> = HashMap::new();
-    let mut seen = HashSet::new();
-    seen.insert(board);
+    let mut closed_set = HashSet::new();
+    let mut gscores: HashMap<Rc<Board>, u32> = HashMap::new();  // actual cost of getting here.
+    gscores.insert(board.clone(), 0);  // it "actually" took no moves to start with this board.
 
-    while let Some(State{board, ..}) = open.pop() {
+    while let Some(AStarState{fscore, board}) = open_set.pop() {
         if board.is_solved() {
             return Some(reconstruct_path(path, board));
         }
 
-        // println!("{}", display_board(&board));
+        // Add to closedset, but if we've already seen this node
+        // don't process it again.
+        if !closed_set.insert(board.clone()) {
+            continue;
+        }
+
+        // we're trying to minimize moves, and each move is equally
+        // costly, so this is a constant `1`.
+        // We're also able to hoist this math outta the neighbor loop.
+        let gscore = gscores.get(&*board).expect("why aint the board in here") + 1;
+
         for next_board in next_states(&board) {
             let next_board = Rc::new(next_board);
-            if !seen.insert(next_board.clone()) {
+            if closed_set.contains(&*next_board) {
                 continue;
             }
+
             path.insert(next_board.clone(), board.clone());
-            open.push(State::new(next_board));
+            gscores.insert(next_board.clone(), gscore);
+            open_set.push(AStarState{
+                fscore: estimated_moves_to_solve(&*next_board) + gscore,
+                board: next_board,  // safe to give on last line of loop
+            });
         }
     }
-
     None
 }
-
 
 fn reconstruct_path(mut path: HashMap<Rc<Board>, Rc<Board>>, board: Rc<Board>) -> VecDeque<Rc<Board>> {
     let mut result: VecDeque<Rc<Board>> = VecDeque::new();
@@ -217,4 +269,93 @@ fn reconstruct_path(mut path: HashMap<Rc<Board>, Rc<Board>>, board: Rc<Board>) -
         result.push_front(board.clone());
     }
     result
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    /// Ensure we make the obvious moves when the game is near the end.
+    fn fast_win() {
+        // My goodness rust needs named arguments
+        let board = Board::new(
+            vec![
+                Some(Card::DragonCard{suit: Suit::Green}),
+                Some(Card::DragonStack),
+                Some(Card::DragonStack),
+            ],
+            true,
+            vec![
+                Some(Card::NumberCard{suit: Suit::Red, rank: 9}),
+                Some(Card::NumberCard{suit: Suit::Black, rank: 4}),
+                Some(Card::NumberCard{suit: Suit::Green, rank: 1}),
+            ],
+            vec![
+                Vec::new(),
+                vec![Card::NumberCard{suit: Suit::Green, rank: 4}],
+                vec![
+                    Card::NumberCard{suit: Suit::Black, rank: 9},
+                    Card::NumberCard{suit: Suit::Green, rank: 8},
+                    Card::NumberCard{suit: Suit::Black, rank: 7},
+                    Card::NumberCard{suit: Suit::Green, rank: 6},
+                ],
+                vec![
+                    Card::NumberCard{suit: Suit::Black, rank: 5},
+                    Card::NumberCard{suit: Suit::Green, rank: 3},
+                ],
+                vec![
+                    Card::DragonCard{suit: Suit::Green},
+                    Card::NumberCard{suit: Suit::Green, rank: 2},
+                    Card::DragonCard{suit: Suit::Green},
+                ],
+                vec![Card::DragonCard{suit: Suit::Green}],
+                Vec::new(),
+                vec![
+                    Card::NumberCard{suit: Suit::Green, rank: 9},
+                    Card::NumberCard{suit: Suit::Black, rank: 8},
+                    Card::NumberCard{suit: Suit::Green, rank: 7},
+                    Card::NumberCard{suit: Suit::Black, rank: 6},
+                    Card::NumberCard{suit: Suit::Green, rank: 5},
+                ],
+            ],
+        );
+        assert_eq!(solve(&board).expect("couldn't even solve").len(), 2);
+    }
+
+    #[test]
+    fn very_easy() {
+        // XXD  J 999
+        //  --D--D--
+        //    D
+        let board = Board::new(
+            vec![
+                Some(Card::DragonStack),
+                Some(Card::DragonStack),
+                Some(Card::DragonCard{suit: Suit::Green}),
+            ],
+            true,
+            vec![
+                Some(Card::NumberCard{suit: Suit::Red, rank: 9}),
+                Some(Card::NumberCard{suit: Suit::Black, rank: 9}),
+                Some(Card::NumberCard{suit: Suit::Green, rank: 9}),
+            ],
+            vec![
+                Vec::new(),
+                Vec::new(),
+                vec![
+                    Card::DragonCard{suit: Suit::Green},
+                    Card::DragonCard{suit: Suit::Green},
+                ],
+                Vec::new(),
+                Vec::new(),
+                vec![Card::DragonCard{suit: Suit::Green}],
+                Vec::new(),
+                Vec::new(),
+            ],
+        );
+
+        assert_eq!(solve(&board).expect("couldn't even solve").len(), 2);
+    }
 }
