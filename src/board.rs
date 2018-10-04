@@ -185,38 +185,55 @@ impl Board {
     pub fn goal_cells(&self) -> &[Rc<CardCell>; 3] {&self.goal_cells}
     pub fn game_cells(&self) -> &[Rc<CardCell>; 8] {&self.game_cells}
 
+    // pining for named arguments
+    pub fn new(free_cells: Vec<Option<Card>>, joker_cell: bool, goal_cells: Vec<Option<Card>>, game_cells: Vec<Vec<Card>>) -> Board {
+        let mut free_cells = free_cells.into_iter().map(|cell|
+            Rc::new(CardCell::FreeCell{card: cell.map(|card| Rc::new(card))})
+        );
+        let mut goal_cells = goal_cells.into_iter().map(|cell|
+            Rc::new(CardCell::GoalCell{top_card: cell.map(|card| Rc::new(card))})
+        );
+        let mut game_cells = game_cells.into_iter().map(|cell|
+            Rc::new(CardCell::GameCell{card_stack: cell.into_iter().map(|card| Rc::new(card)).collect()})
+        );
+
+        Board{
+            joker_cell: Rc::new(CardCell::JokerCell{has_joker: joker_cell}),
+            // TODO: I hate this, but I'm tired of fighting rust over it.
+            // Maybe revisit this someday:
+            // https://llogiq.github.io/2016/04/28/arraymap.html
+            free_cells: [
+                free_cells.next().unwrap(),
+                free_cells.next().unwrap(),
+                free_cells.next().unwrap(),
+            ],
+            goal_cells: [
+                goal_cells.next().unwrap(),
+                goal_cells.next().unwrap(),
+                goal_cells.next().unwrap(),
+            ],
+            game_cells: [
+                game_cells.next().unwrap(),
+                game_cells.next().unwrap(),
+                game_cells.next().unwrap(),
+                game_cells.next().unwrap(),
+                game_cells.next().unwrap(),
+                game_cells.next().unwrap(),
+                game_cells.next().unwrap(),
+                game_cells.next().unwrap(),
+            ],
+        }
+
+    }
+
     pub fn deal() -> Board {
         let mut deck = create_deck();
         thread_rng().shuffle(&mut deck);
 
-        let mut stacks = distribute(deck, 8).into_iter();
-
-        Board{
-            joker_cell: Rc::new(CardCell::JokerCell{has_joker: false}),
-            free_cells: [
-                Rc::new(CardCell::FreeCell{card: None}),
-                Rc::new(CardCell::FreeCell{card: None}),
-                Rc::new(CardCell::FreeCell{card: None}),
-            ],
-            goal_cells: [
-                Rc::new(CardCell::GoalCell{top_card: None}),
-                Rc::new(CardCell::GoalCell{top_card: None}),
-                Rc::new(CardCell::GoalCell{top_card: None}),
-            ],
-            // TODO: I hate this, but I'm tired of fighting rust over it.
-            // Maybe revisit this someday:
-            // https://llogiq.github.io/2016/04/28/arraymap.html
-            game_cells: [
-                Rc::new(CardCell::GameCell{card_stack: stacks.next().unwrap()}),
-                Rc::new(CardCell::GameCell{card_stack: stacks.next().unwrap()}),
-                Rc::new(CardCell::GameCell{card_stack: stacks.next().unwrap()}),
-                Rc::new(CardCell::GameCell{card_stack: stacks.next().unwrap()}),
-                Rc::new(CardCell::GameCell{card_stack: stacks.next().unwrap()}),
-                Rc::new(CardCell::GameCell{card_stack: stacks.next().unwrap()}),
-                Rc::new(CardCell::GameCell{card_stack: stacks.next().unwrap()}),
-                Rc::new(CardCell::GameCell{card_stack: stacks.next().unwrap()}),
-            ],
-        }
+        Board::new(
+            vec![None, None, None], false, vec![None, None, None],
+            distribute(deck, 8),
+        )
     }
 
     fn move_card(source: &mut Rc<CardCell>, dest: &mut Rc<CardCell>) -> bool {
@@ -466,17 +483,17 @@ impl Hash for Board {
     }
 }
 
-fn create_deck() -> Vec<Rc<Card>> {
-    let mut vec: Vec<Rc<Card>> = Vec::with_capacity(40);
+fn create_deck() -> Vec<Card> {
+    let mut vec: Vec<Card> = Vec::with_capacity(40);
     for suit in vec![Suit::Black, Suit::Green, Suit::Red] {
         for _ in 0..4 {
-            vec.push(Rc::new(Card::DragonCard{suit}));
+            vec.push(Card::DragonCard{suit});
         }
         for rank in 1..10 {
-            vec.push(Rc::new(Card::NumberCard{suit, rank}));
+            vec.push(Card::NumberCard{suit, rank});
         }
     }
-    vec.push(Rc::new(Card::JokerCard{}));
+    vec.push(Card::JokerCard);
     return vec
 }
 
