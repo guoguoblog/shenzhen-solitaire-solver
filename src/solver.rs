@@ -56,7 +56,7 @@ struct AStarState {
 
 impl Ord for AStarState {
     fn cmp(&self, other: &AStarState) -> Ordering {
-        self.fscore.cmp(&other.fscore)
+        other.fscore.cmp(&self.fscore)
     }
 }
 
@@ -226,21 +226,23 @@ pub fn solve_rc(board: &Board) -> Option<VecDeque<Rc<Board>>> {
             return Some(reconstruct_path(path, board));
         }
 
-        // Add to closedset, but if we've already seen this node
-        // don't process it again.
-        if !closed_set.insert(board.clone()) {
-            continue;
-        }
+        closed_set.insert(board.clone());
 
         // we're trying to minimize moves, and each move is equally
         // costly, so this is a constant `1`.
         // We're also able to hoist this math outta the neighbor loop.
-        let gscore = gscores.get(&*board).expect("why aint the board in here") + 1;
+        let gscore: u32 = gscores.get(&*board).expect("why aint the board in here") + 1;
 
         for next_board in next_states(&board) {
             let next_board = Rc::new(next_board);
             if closed_set.contains(&*next_board) {
                 continue;
+            }
+
+            if let Some(score) = gscores.get(&next_board) {
+                if score < &gscore {
+                    continue;
+                }
             }
 
             path.insert(next_board.clone(), board.clone());
@@ -321,7 +323,7 @@ mod tests {
                 ],
             ],
         );
-        assert_eq!(solve(&board).expect("couldn't even solve").len(), 2);
+        assert_eq!(solve(&board).expect("couldn't even solve").len(), 3);
     }
 
     #[test]
@@ -356,6 +358,6 @@ mod tests {
             ],
         );
 
-        assert_eq!(solve(&board).expect("couldn't even solve").len(), 2);
+        assert_eq!(solve(&board).expect("couldn't even solve").len(), 3);
     }
 }
