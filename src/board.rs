@@ -1,10 +1,13 @@
 extern crate itertools;
 extern crate rand;
+extern crate zero85;
+use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
 use self::itertools::sorted;
-use self::rand::{thread_rng, Rng};
+use self::rand::{thread_rng, Rng, SeedableRng, StdRng};
+use self::zero85::{FromZ85, ToZ85};
 
 #[derive(Copy, Clone)]
 #[derive(Debug)]
@@ -165,7 +168,7 @@ pub enum MoveStackError {
     InvalidMove,
 }
 
-#[derive(Clone, Eq)]
+#[derive(Clone)]
 pub struct Board {
     joker_cell: Rc<CardCell>,
     free_cells: [Rc<CardCell>; 3],
@@ -220,9 +223,14 @@ impl Board {
 
     }
 
-    pub fn deal() -> Board {
+    pub fn deal() -> (Board, Seed) {
+        let seed = Seed::random();
+        (Board::deal_seeded(&seed), seed)
+    }
+
+    pub fn deal_seeded(seed: &Seed) -> Board {
         let mut deck = create_deck();
-        thread_rng().shuffle(&mut deck);
+        StdRng::from_seed(seed.key).shuffle(&mut deck);
 
         Board::new(
             vec![None, None, None], false, vec![None, None, None],
@@ -466,6 +474,8 @@ impl PartialEq for Board {
     }
 }
 
+impl Eq for Board {}
+
 impl Hash for Board {
     fn hash<H>(&self, hasher: &mut H) where
         H: Hasher,
@@ -474,6 +484,34 @@ impl Hash for Board {
         sorted(self.game_cells.iter()).hash(hasher);
         sorted(self.free_cells.iter()).hash(hasher);
         sorted(self.goal_cells.iter()).hash(hasher);
+    }
+}
+
+pub struct Seed {
+    key: [u8; 32],
+}
+
+impl Seed {
+    pub fn from_string(seed: &str) -> Seed {
+        let bytes = seed.from_z85().unwrap();
+        let mut array = [0; 32];
+        let bytes = &bytes[..array.len()]; // panics if not enough data
+        array.copy_from_slice(bytes);
+        Seed {key: array}
+    }
+
+    pub fn to_string(&self) -> String {
+        self.key.to_z85().unwrap()
+    }
+
+    pub fn random() -> Seed {
+        Seed {key: thread_rng().gen()}
+    }
+}
+
+impl fmt::Display for Seed {
+    fn fmt(&self, formatter: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(formatter, "{}", self.to_string())
     }
 }
 

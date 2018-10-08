@@ -11,8 +11,15 @@ mod solver;
 fn main() {
     // game::Game::print_controls();
     // game::Game::deal().play();
+    let (b, seed) = match std::env::args().nth(1) {
+        Some(seed_str) => {
+            let seed = board::Seed::from_string(&seed_str);
+            (board::Board::deal_seeded(&seed), seed)
+        },
+        None => board::Board::deal()
+    };
 
-    let b = board::Board::deal();
+    println!("{}", seed);
     println!("{}", display::display_board(&b));
     let b2 = b.do_automoves();
 

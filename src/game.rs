@@ -41,7 +41,8 @@ impl Game {
     }
 
     pub fn deal() -> Game {
-        Game::new(Board::deal())
+        let (board, seed) = Board::deal();
+        Game::new(board)
     }
 
     fn print(&self) {
