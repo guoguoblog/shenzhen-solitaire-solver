@@ -133,7 +133,7 @@ impl CardCell {
                 let mut last_card: Rc<Card>;
                 if let Some(rc_card) = iter.next() {
                     last_card = rc_card.clone();
-                    result.push(last_card.clone());  // TODO: can we avoid one of these clones??
+                    result.push(last_card.clone());
                 }
                 else {
                     return result;

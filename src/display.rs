@@ -74,10 +74,6 @@ pub fn display_highlighted_cell(card_cell: &CardCell, height: u8) -> String {
     }
 }
 
-pub fn clear() {
-    print!("{}[2J", 27 as char);
-}
-
 pub fn display_board(board: &Board) -> String {
     let mut s = String::new();
     for cell in board.free_cells().iter() {

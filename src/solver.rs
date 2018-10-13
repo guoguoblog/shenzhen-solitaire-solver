@@ -1,9 +1,8 @@
-use std::cmp::{Ordering, min};
+use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet, VecDeque, BinaryHeap};
 use std::hash::Hash;
 use std::rc::Rc;
 
-// use ::display::display_board;
 use ::board::{Board, Card, CardCellIndex, CardCell, MoveStackError, Suit};
 
 const SOURCE_SLOTS: &[CardCellIndex] = &[
@@ -36,7 +35,7 @@ const DEST_SLOTS: &[CardCellIndex] = &[
     CardCellIndex::GameCellIndex(7),
 ];
 
-fn counter<T, I>(mut iter: I) -> HashMap<T, u32> where
+fn counter<T, I>(iter: I) -> HashMap<T, u32> where
     T: Hash + Eq,
     I: Iterator<Item=T>,
 {
@@ -181,10 +180,6 @@ pub fn next_states(board: &Board) -> Vec<Board> {
     });
     let dest_slots = get_valid_dests(board);
 
-    // only need this reassign for the debug statement below
-    // let source_slots: Vec<_> = source_slots.collect();
-    // println!("{} → {} = {}", source_slots.len(), dest_slots.len(), source_slots.len() * dest_slots.len());
-
     for source_slot in source_slots {
         for dest_slot in dest_slots.iter() {
             match board.move_stack(source_slot, dest_slot) {
@@ -221,7 +216,7 @@ pub fn solve_rc(board: &Board) -> Option<VecDeque<Rc<Board>>> {
     let mut gscores: HashMap<Rc<Board>, u32> = HashMap::new();  // actual cost of getting here.
     gscores.insert(board.clone(), 0);  // it "actually" took no moves to start with this board.
 
-    while let Some(AStarState{fscore, board}) = open_set.pop() {
+    while let Some(AStarState{board, ..}) = open_set.pop() {
         if board.is_solved() {
             return Some(reconstruct_path(path, board));
         }

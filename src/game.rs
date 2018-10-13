@@ -40,11 +40,6 @@ impl Game {
         }
     }
 
-    pub fn deal() -> Game {
-        let (board, seed) = Board::deal();
-        Game::new(board)
-    }
-
     fn print(&self) {
         let mut s = String::new();
 
@@ -156,7 +151,7 @@ impl Game {
                 'c' | 'C' => self.cancel(),
                 num @ '1' ... '8' => self.jump_to(num as u8 - '0' as u8),
                 ' ' => self.select(),
-                _ => (), // println!("{}", chr),
+                _ => (),
             }
             self.print();
         }
